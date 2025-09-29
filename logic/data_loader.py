@@ -139,6 +139,10 @@ def load_features(
     collected = collected[[c for c in feature_columns if c in collected.columns]]
     collected = collected.sort_index()
 
+    # NEW: Forward-fill to propagate low-frequency data (e.g., daily fear/greed)
+    # This ensures that when merging, the last known value is available.
+    collected = collected.ffill()
+
     return collected
 
 def merge_trade_features(

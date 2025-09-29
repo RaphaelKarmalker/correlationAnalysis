@@ -1,5 +1,5 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 import pandas as pd
 import threading
 import os
@@ -14,73 +14,31 @@ from logic.trade_analyser import run_trade_analysis
 from logic.data_loader import load_features
 from logic.chart_analyser import ChartAnalyser
 
-class DarkTheme:
-    """Dark theme color scheme and styling"""
-    BG_DARK = "#1e1e1e"
-    BG_MEDIUM = "#2d2d2d"
-    BG_LIGHT = "#3c3c3c"
-    BG_HOVER = "#404040"
-    TEXT_PRIMARY = "#ffffff"
-    TEXT_SECONDARY = "#cccccc"
-    TEXT_DISABLED = "#666666"
-    ACCENT_BLUE = "#0078d4"
-    ACCENT_GREEN = "#107c10"
-    ACCENT_RED = "#d13438"
-    BORDER = "#555555"
+# Set appearance mode and default color theme
+ctk.set_appearance_mode("dark")  # Modes: "System", "Dark", "Light"
+ctk.set_default_color_theme("blue")  # Themes: "blue", "green", "dark-blue"
 
 class TradeAnalysisGUI:
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = ctk.CTk()
         self.root.title("Trade Performance Analysis Dashboard")
         self.root.geometry("1400x900")
-        self.root.configure(bg=DarkTheme.BG_DARK)
         
         # Variables
-        self.trades_path = tk.StringVar()
-        self.ohlcv_path = tk.StringVar()
+        self.trades_path = ctk.StringVar()
+        self.ohlcv_path = ctk.StringVar()
         self.feature_paths = []
-        self.group_by = tk.StringVar(value="amount")
-        self.num_bins = tk.IntVar(value=10)
+        self.group_by = ctk.StringVar(value="amount")
+        self.num_bins = ctk.IntVar(value=10)
         
         # Feature data
         self.available_features = []
         self.available_chart_indicators = []
-        self.feature_selections = {}  # {feature_name: (selected_var, conversion_var)}
-        self.chart_selections = {}    # {indicator_name: (selected_var, conversion_var)}
+        self.feature_selections = {}  # {feature_name: (selected_var, conversion_var, params_var)}
+        self.chart_selections = {}    # {indicator_name: (selected_var, conversion_var, params_var)}
         
-        self.setup_styles()
         self.create_widgets()
         self.center_window()
-        
-    def setup_styles(self):
-        """Configure dark theme styles"""
-        style = ttk.Style()
-        style.theme_use('clam')
-        
-        # Configure colors
-        style.configure('Dark.TFrame', background=DarkTheme.BG_DARK)
-        style.configure('Medium.TFrame', background=DarkTheme.BG_MEDIUM, relief='solid', borderwidth=1)
-        style.configure('Light.TFrame', background=DarkTheme.BG_LIGHT)
-        
-        style.configure('Dark.TLabel', background=DarkTheme.BG_DARK, foreground=DarkTheme.TEXT_PRIMARY, font=('Segoe UI', 10))
-        style.configure('Header.TLabel', background=DarkTheme.BG_DARK, foreground=DarkTheme.TEXT_PRIMARY, font=('Segoe UI', 12, 'bold'))
-        style.configure('Section.TLabel', background=DarkTheme.BG_MEDIUM, foreground=DarkTheme.TEXT_PRIMARY, font=('Segoe UI', 11, 'bold'))
-        
-        style.configure('Dark.TButton', background=DarkTheme.BG_LIGHT, foreground=DarkTheme.TEXT_PRIMARY, borderwidth=1, relief='solid')
-        style.map('Dark.TButton', background=[('active', DarkTheme.BG_HOVER)])
-        
-        style.configure('Accent.TButton', background=DarkTheme.ACCENT_BLUE, foreground=DarkTheme.TEXT_PRIMARY, borderwidth=0)
-        style.map('Accent.TButton', background=[('active', '#106ebe')])
-        
-        style.configure('Success.TButton', background=DarkTheme.ACCENT_GREEN, foreground=DarkTheme.TEXT_PRIMARY, borderwidth=0)
-        style.map('Success.TButton', background=[('active', '#0e6e0e')])
-        
-        style.configure('Dark.TEntry', fieldbackground=DarkTheme.BG_LIGHT, foreground=DarkTheme.TEXT_PRIMARY, borderwidth=1)
-        style.configure('Dark.TCombobox', fieldbackground=DarkTheme.BG_LIGHT, foreground=DarkTheme.TEXT_PRIMARY, borderwidth=1)
-        style.configure('Dark.TCheckbutton', background=DarkTheme.BG_MEDIUM, foreground=DarkTheme.TEXT_PRIMARY, focuscolor='none')
-        style.configure('Dark.TRadiobutton', background=DarkTheme.BG_MEDIUM, foreground=DarkTheme.TEXT_PRIMARY, focuscolor='none')
-        
-        style.configure('Dark.Horizontal.TProgressbar', background=DarkTheme.ACCENT_BLUE, troughcolor=DarkTheme.BG_LIGHT)
         
     def center_window(self):
         """Center the window on screen"""
@@ -92,176 +50,190 @@ class TradeAnalysisGUI:
     def create_widgets(self):
         """Create the main GUI layout"""
         # Main container with padding
-        main_frame = ttk.Frame(self.root, style='Dark.TFrame', padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # Title
-        title_label = ttk.Label(main_frame, text="Trade Performance Analysis Dashboard", style='Header.TLabel')
-        title_label.pack(pady=(0, 20))
+        # Title with help button
+        title_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        title_frame.pack(fill="x", pady=(0, 20))
         
-        # Create notebook for organized sections
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True)
+        title_label = ctk.CTkLabel(title_frame, text="Trade Performance Analysis Dashboard", 
+                                  font=ctk.CTkFont(size=24, weight="bold"))
+        title_label.pack(side="left")
         
-        # Tab 1: File Selection
-        self.create_file_selection_tab(notebook)
+        ctk.CTkButton(title_frame, text="❓ Help", command=self.show_help_window, 
+                     width=80, height=30).pack(side="right")
         
-        # Tab 2: Feature Selection
-        self.create_feature_selection_tab(notebook)
+        # Create tabview for organized sections
+        self.tabview = ctk.CTkTabview(main_frame, width=1300, height=700)
+        self.tabview.pack(fill="both", expand=True)
         
-        # Tab 3: Analysis Settings
-        self.create_settings_tab(notebook)
+        # Add tabs
+        self.tabview.add("📁 File Selection")
+        self.tabview.add("⚙️ Feature Selection")
+        self.tabview.add("📊 Analysis Settings")
+        
+        # Create tab contents
+        self.create_file_selection_tab()
+        self.create_feature_selection_tab()
+        self.create_settings_tab()
         
         # Bottom control panel
         self.create_control_panel(main_frame)
         
-    def create_file_selection_tab(self, parent):
+    def create_file_selection_tab(self):
         """Create file selection tab"""
-        tab_frame = ttk.Frame(parent, style='Dark.TFrame', padding="20")
-        parent.add(tab_frame, text="📁 File Selection")
+        tab_frame = self.tabview.tab("📁 File Selection")
         
         # Trades CSV (Mandatory)
-        trades_frame = ttk.LabelFrame(tab_frame, text=" Trades CSV (Required) ", style='Medium.TFrame', padding="15")
-        trades_frame.pack(fill=tk.X, pady=(0, 15))
+        trades_frame = ctk.CTkFrame(tab_frame)
+        trades_frame.pack(fill="x", padx=20, pady=(20, 15))
         
-        ttk.Label(trades_frame, text="Select your trades CSV file:", style='Dark.TLabel').pack(anchor=tk.W)
+        trades_title = ctk.CTkLabel(trades_frame, text="Trades CSV (Required)", 
+                                   font=ctk.CTkFont(size=16, weight="bold"))
+        trades_title.pack(anchor="w", padx=15, pady=(15, 5))
         
-        trades_input_frame = ttk.Frame(trades_frame, style='Dark.TFrame')
-        trades_input_frame.pack(fill=tk.X, pady=(5, 0))
+        trades_desc = ctk.CTkLabel(trades_frame, text="Select your trades CSV file:")
+        trades_desc.pack(anchor="w", padx=15)
         
-        self.trades_entry = ttk.Entry(trades_input_frame, textvariable=self.trades_path, style='Dark.TEntry', state='readonly')
-        self.trades_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        trades_input_frame = ctk.CTkFrame(trades_frame, fg_color="transparent")
+        trades_input_frame.pack(fill="x", padx=15, pady=(5, 15))
         
-        ttk.Button(trades_input_frame, text="Browse", command=self.select_trades_file, style='Dark.TButton').pack(side=tk.RIGHT)
+        self.trades_entry = ctk.CTkEntry(trades_input_frame, textvariable=self.trades_path, 
+                                        placeholder_text="No file selected", state="readonly")
+        self.trades_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        ctk.CTkButton(trades_input_frame, text="Browse", command=self.select_trades_file, 
+                     width=100).pack(side="right")
         
         # OHLCV CSV (Optional)
-        ohlcv_frame = ttk.LabelFrame(tab_frame, text=" OHLCV CSV (Optional - for chart indicators) ", style='Medium.TFrame', padding="15")
-        ohlcv_frame.pack(fill=tk.X, pady=(0, 15))
+        ohlcv_frame = ctk.CTkFrame(tab_frame)
+        ohlcv_frame.pack(fill="x", padx=20, pady=(0, 15))
         
-        ttk.Label(ohlcv_frame, text="Select OHLCV data for chart indicator analysis:", style='Dark.TLabel').pack(anchor=tk.W)
+        ohlcv_title = ctk.CTkLabel(ohlcv_frame, text="OHLCV CSV (Optional - for chart indicators)", 
+                                  font=ctk.CTkFont(size=16, weight="bold"))
+        ohlcv_title.pack(anchor="w", padx=15, pady=(15, 5))
         
-        ohlcv_input_frame = ttk.Frame(ohlcv_frame, style='Dark.TFrame')
-        ohlcv_input_frame.pack(fill=tk.X, pady=(5, 0))
+        ohlcv_desc = ctk.CTkLabel(ohlcv_frame, text="Select OHLCV data for chart indicator analysis:")
+        ohlcv_desc.pack(anchor="w", padx=15)
         
-        self.ohlcv_entry = ttk.Entry(ohlcv_input_frame, textvariable=self.ohlcv_path, style='Dark.TEntry', state='readonly')
-        self.ohlcv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        ohlcv_input_frame = ctk.CTkFrame(ohlcv_frame, fg_color="transparent")
+        ohlcv_input_frame.pack(fill="x", padx=15, pady=(5, 15))
         
-        ttk.Button(ohlcv_input_frame, text="Browse", command=self.select_ohlcv_file, style='Dark.TButton').pack(side=tk.RIGHT)
+        self.ohlcv_entry = ctk.CTkEntry(ohlcv_input_frame, textvariable=self.ohlcv_path, 
+                                       placeholder_text="No file selected", state="readonly")
+        self.ohlcv_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        ctk.CTkButton(ohlcv_input_frame, text="Browse", command=self.select_ohlcv_file, 
+                     width=100).pack(side="right")
         
         # Feature CSVs
-        features_frame = ttk.LabelFrame(tab_frame, text=" Feature CSV Files ", style='Medium.TFrame', padding="15")
-        features_frame.pack(fill=tk.BOTH, expand=True)
+        features_frame = ctk.CTkFrame(tab_frame)
+        features_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
-        ttk.Label(features_frame, text="Add feature CSV files:", style='Dark.TLabel').pack(anchor=tk.W)
+        features_title = ctk.CTkLabel(features_frame, text="Feature CSV Files", 
+                                     font=ctk.CTkFont(size=16, weight="bold"))
+        features_title.pack(anchor="w", padx=15, pady=(15, 5))
         
-        # Feature files list with scrollbar
-        list_frame = ttk.Frame(features_frame, style='Dark.TFrame')
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        features_desc = ctk.CTkLabel(features_frame, text="Add feature CSV files:")
+        features_desc.pack(anchor="w", padx=15)
         
-        # Listbox with scrollbar
-        scrollbar = ttk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.feature_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, 
-                                         bg=DarkTheme.BG_LIGHT, fg=DarkTheme.TEXT_PRIMARY,
-                                         selectbackground=DarkTheme.ACCENT_BLUE, borderwidth=0,
-                                         font=('Segoe UI', 10))
-        self.feature_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.feature_listbox.yview)
+        # Feature files scrollable list
+        self.feature_textbox = ctk.CTkTextbox(features_frame, height=150)
+        self.feature_textbox.pack(fill="both", expand=True, padx=15, pady=(10, 10))
         
         # Buttons for feature files
-        feature_btn_frame = ttk.Frame(features_frame, style='Dark.TFrame')
-        feature_btn_frame.pack(fill=tk.X, pady=(10, 0))
+        feature_btn_frame = ctk.CTkFrame(features_frame, fg_color="transparent")
+        feature_btn_frame.pack(fill="x", padx=15, pady=(0, 15))
         
-        ttk.Button(feature_btn_frame, text="Add Feature CSV", command=self.add_feature_file, style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame, text="Remove Selected", command=self.remove_feature_file, style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame, text="Load Features", command=self.load_available_features, style='Accent.TButton').pack(side=tk.RIGHT)
+        ctk.CTkButton(feature_btn_frame, text="Add Feature CSV", 
+                     command=self.add_feature_file).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(feature_btn_frame, text="Remove Selected", 
+                     command=self.remove_feature_file).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(feature_btn_frame, text="Load Features", 
+                     command=self.load_available_features, 
+                     fg_color="#1f538d").pack(side="right")
         
-    def create_feature_selection_tab(self, parent):
+    def create_feature_selection_tab(self):
         """Create feature selection and conversion tab"""
-        tab_frame = ttk.Frame(parent, style='Dark.TFrame', padding="20")
-        parent.add(tab_frame, text="⚙️ Feature Selection")
+        tab_frame = self.tabview.tab("⚙️ Feature Selection")
         
-        # Create canvas and scrollbar for scrollable content
-        canvas = tk.Canvas(tab_frame, bg=DarkTheme.BG_DARK, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = ttk.Frame(canvas, style='Dark.TFrame')
-        
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Bind mousewheel to canvas
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # Create scrollable frame for feature selection
+        self.scrollable_frame = ctk.CTkScrollableFrame(tab_frame, label_text="Feature Selection & Conversion")
+        self.scrollable_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Initial message
-        self.no_features_label = ttk.Label(self.scrollable_frame, 
-                                          text="Please load feature files first in the File Selection tab",
-                                          style='Dark.TLabel', font=('Segoe UI', 11, 'italic'))
+        self.no_features_label = ctk.CTkLabel(self.scrollable_frame, 
+                                             text="Please load feature files first in the File Selection tab",
+                                             font=ctk.CTkFont(size=14, slant="italic"))
         self.no_features_label.pack(pady=50)
         
-    def create_settings_tab(self, parent):
+    def create_settings_tab(self):
         """Create analysis settings tab"""
-        tab_frame = ttk.Frame(parent, style='Dark.TFrame', padding="20")
-        parent.add(tab_frame, text="📊 Analysis Settings")
+        tab_frame = self.tabview.tab("📊 Analysis Settings")
         
         # Binning settings
-        binning_frame = ttk.LabelFrame(tab_frame, text=" Binning Configuration ", style='Medium.TFrame', padding="15")
-        binning_frame.pack(fill=tk.X, pady=(0, 15))
+        binning_frame = ctk.CTkFrame(tab_frame)
+        binning_frame.pack(fill="x", padx=20, pady=(20, 15))
+        
+        binning_title = ctk.CTkLabel(binning_frame, text="Binning Configuration", 
+                                    font=ctk.CTkFont(size=16, weight="bold"))
+        binning_title.pack(anchor="w", padx=15, pady=(15, 10))
         
         # Number of bins
-        bins_frame = ttk.Frame(binning_frame, style='Dark.TFrame')
-        bins_frame.pack(fill=tk.X, pady=(0, 10))
+        bins_frame = ctk.CTkFrame(binning_frame, fg_color="transparent")
+        bins_frame.pack(fill="x", padx=15, pady=(0, 10))
         
-        ttk.Label(bins_frame, text="Number of bins:", style='Dark.TLabel').pack(side=tk.LEFT)
-        bins_spinbox = ttk.Spinbox(bins_frame, from_=5, to=50, textvariable=self.num_bins, width=10, style='Dark.TEntry')
-        bins_spinbox.pack(side=tk.LEFT, padx=(10, 0))
+        ctk.CTkLabel(bins_frame, text="Number of bins:").pack(side="left")
+        self.bins_spinbox = ctk.CTkEntry(bins_frame, textvariable=self.num_bins, width=80)
+        self.bins_spinbox.pack(side="left", padx=(10, 0))
         
         # Group by method
-        ttk.Label(binning_frame, text="Binning method:", style='Dark.TLabel').pack(anchor=tk.W, pady=(10, 5))
+        method_frame = ctk.CTkFrame(binning_frame, fg_color="transparent")
+        method_frame.pack(fill="x", padx=15, pady=(0, 15))
         
-        radio_frame = ttk.Frame(binning_frame, style='Dark.TFrame')
-        radio_frame.pack(anchor=tk.W)
+        ctk.CTkLabel(method_frame, text="Binning method:").pack(anchor="w", pady=(10, 5))
         
-        ttk.Radiobutton(radio_frame, text="Equal width (size)", variable=self.group_by, value="size", style='Dark.TRadiobutton').pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(radio_frame, text="Equal count (amount)", variable=self.group_by, value="amount", style='Dark.TRadiobutton').pack(side=tk.LEFT)
+        self.radio_var = ctk.StringVar(value="amount")
+        ctk.CTkRadioButton(method_frame, text="Equal width (size)", 
+                          variable=self.radio_var, value="size").pack(anchor="w", pady=2)
+        ctk.CTkRadioButton(method_frame, text="Equal count (amount)", 
+                          variable=self.radio_var, value="amount").pack(anchor="w", pady=2)
         
         # Output settings
-        output_frame = ttk.LabelFrame(tab_frame, text=" Output Configuration ", style='Medium.TFrame', padding="15")
-        output_frame.pack(fill=tk.X)
+        output_frame = ctk.CTkFrame(tab_frame)
+        output_frame.pack(fill="x", padx=20)
         
-        ttk.Label(output_frame, text="Save directory: ./data/trade_analysis", style='Dark.TLabel').pack(anchor=tk.W)
-        ttk.Label(output_frame, text="(Results will be organized by feature in subfolders)", 
-                 style='Dark.TLabel', font=('Segoe UI', 9, 'italic')).pack(anchor=tk.W, pady=(5, 0))
+        output_title = ctk.CTkLabel(output_frame, text="Output Configuration", 
+                                   font=ctk.CTkFont(size=16, weight="bold"))
+        output_title.pack(anchor="w", padx=15, pady=(15, 5))
+        
+        ctk.CTkLabel(output_frame, text="Save directory: ./data/trade_analysis").pack(anchor="w", padx=15)
+        ctk.CTkLabel(output_frame, text="(Results will be organized by feature in subfolders)", 
+                    font=ctk.CTkFont(size=12, slant="italic")).pack(anchor="w", padx=15, pady=(5, 15))
         
     def create_control_panel(self, parent):
         """Create bottom control panel"""
-        control_frame = ttk.Frame(parent, style='Medium.TFrame', padding="15")
-        control_frame.pack(fill=tk.X, pady=(20, 0))
+        control_frame = ctk.CTkFrame(parent)
+        control_frame.pack(fill="x", pady=(20, 0))
         
         # Progress bar
-        self.progress = ttk.Progressbar(control_frame, mode='indeterminate', style='Dark.Horizontal.TProgressbar')
-        self.progress.pack(fill=tk.X, pady=(0, 10))
+        self.progress = ctk.CTkProgressBar(control_frame, mode="indeterminate")
+        self.progress.pack(fill="x", padx=15, pady=(15, 10))
         
         # Status label
-        self.status_label = ttk.Label(control_frame, text="Ready to start analysis", style='Dark.TLabel')
+        self.status_label = ctk.CTkLabel(control_frame, text="Ready to start analysis")
         self.status_label.pack(pady=(0, 10))
         
         # Buttons
-        btn_frame = ttk.Frame(control_frame, style='Dark.TFrame')
-        btn_frame.pack()
+        btn_frame = ctk.CTkFrame(control_frame, fg_color="transparent")
+        btn_frame.pack(pady=(0, 15))
         
-        ttk.Button(btn_frame, text="Start Analysis", command=self.start_analysis, style='Success.TButton').pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(btn_frame, text="Reset All", command=self.reset_all, style='Dark.TButton').pack(side=tk.LEFT)
+        ctk.CTkButton(btn_frame, text="Start Analysis", command=self.start_analysis, 
+                     fg_color="#2fa572", hover_color="#106a43", width=140, height=40,
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(btn_frame, text="Reset All", command=self.reset_all, 
+                     width=100, height=40).pack(side="left")
         
     def select_trades_file(self):
         """Select trades CSV file"""
@@ -290,15 +262,20 @@ class TradeAnalysisGUI:
         )
         if filename and filename not in self.feature_paths:
             self.feature_paths.append(filename)
-            self.feature_listbox.insert(tk.END, os.path.basename(filename))
+            self.update_feature_list_display()
             
     def remove_feature_file(self):
         """Remove selected feature file"""
-        selection = self.feature_listbox.curselection()
-        if selection:
-            index = selection[0]
-            self.feature_listbox.delete(index)
-            del self.feature_paths[index]
+        if self.feature_paths:
+            # For simplicity, remove the last added file
+            self.feature_paths.pop()
+            self.update_feature_list_display()
+            
+    def update_feature_list_display(self):
+        """Update the feature files display"""
+        self.feature_textbox.delete("0.0", "end")
+        for i, path in enumerate(self.feature_paths, 1):
+            self.feature_textbox.insert("end", f"{i}. {os.path.basename(path)}\n")
             
     def load_available_features(self):
         """Load available features from selected CSV files"""
@@ -307,7 +284,7 @@ class TradeAnalysisGUI:
             return
             
         try:
-            self.status_label.config(text="Loading features...")
+            self.status_label.configure(text="Loading features...")
             self.progress.start()
             
             # Load all features to get available columns
@@ -322,11 +299,11 @@ class TradeAnalysisGUI:
             self.create_feature_selection_ui()
             
             self.progress.stop()
-            self.status_label.config(text=f"Loaded {len(self.available_features)} available features")
+            self.status_label.configure(text=f"Loaded {len(self.available_features)} available features")
             
         except Exception as e:
             self.progress.stop()
-            self.status_label.config(text="Error loading features")
+            self.status_label.configure(text="Error loading features")
             messagebox.showerror("Error", f"Failed to load features: {str(e)}")
             
     def load_chart_indicators(self):
@@ -358,8 +335,7 @@ class TradeAnalysisGUI:
         
         # Conversion options
         conversion_options = [
-            "None",
-            "zscore", "robust_zscore", "rolling_zscore",
+            "None", "zscore", "robust_zscore", "rolling_zscore",
             "expanding_zscore", "ewm_zscore", "rolling_robust_zscore",
             "minmax", "rolling_minmax", "expanding_minmax",
             "pct_change", "diff", "log_return"
@@ -367,76 +343,132 @@ class TradeAnalysisGUI:
         
         # CSV Features section
         if self.available_features:
-            csv_frame = ttk.LabelFrame(self.scrollable_frame, text=" CSV Features ", style='Medium.TFrame', padding="15")
-            csv_frame.pack(fill=tk.X, pady=(0, 15))
+            csv_frame = ctk.CTkFrame(self.scrollable_frame)
+            csv_frame.pack(fill="x", pady=(0, 15))
+            
+            csv_title = ctk.CTkLabel(csv_frame, text="CSV Features", 
+                                    font=ctk.CTkFont(size=16, weight="bold"))
+            csv_title.pack(anchor="w", padx=15, pady=(15, 5))
             
             # Select all/none buttons
-            btn_frame = ttk.Frame(csv_frame, style='Dark.TFrame')
-            btn_frame.pack(fill=tk.X, pady=(0, 10))
+            btn_frame = ctk.CTkFrame(csv_frame, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=15, pady=(0, 10))
             
-            ttk.Button(btn_frame, text="Select All", command=lambda: self.toggle_all_features(True), style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-            ttk.Button(btn_frame, text="Select None", command=lambda: self.toggle_all_features(False), style='Dark.TButton').pack(side=tk.LEFT)
+            ctk.CTkButton(btn_frame, text="Select All", 
+                         command=lambda: self.toggle_all_features(True), 
+                         width=100).pack(side="left", padx=(0, 10))
+            ctk.CTkButton(btn_frame, text="Select None", 
+                         command=lambda: self.toggle_all_features(False), 
+                         width=100).pack(side="left")
             
             # Create grid for features
-            self.create_feature_grid(csv_frame, self.available_features, self.feature_selections, conversion_options)
+            self.create_feature_grid(csv_frame, self.available_features, 
+                                   self.feature_selections, conversion_options)
             
         # Chart indicators section
         if self.available_chart_indicators:
-            chart_frame = ttk.LabelFrame(self.scrollable_frame, text=" Chart Indicators ", style='Medium.TFrame', padding="15")
-            chart_frame.pack(fill=tk.X, pady=(0, 15))
+            chart_frame = ctk.CTkFrame(self.scrollable_frame)
+            chart_frame.pack(fill="x", pady=(0, 15))
+            
+            chart_title = ctk.CTkLabel(chart_frame, text="Chart Indicators", 
+                                      font=ctk.CTkFont(size=16, weight="bold"))
+            chart_title.pack(anchor="w", padx=15, pady=(15, 5))
             
             # Select all/none buttons for chart indicators
-            btn_frame = ttk.Frame(chart_frame, style='Dark.TFrame')
-            btn_frame.pack(fill=tk.X, pady=(0, 10))
+            btn_frame = ctk.CTkFrame(chart_frame, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=15, pady=(0, 10))
             
-            ttk.Button(btn_frame, text="Select All", command=lambda: self.toggle_all_chart_features(True), style='Dark.TButton').pack(side=tk.LEFT, padx=(0, 5))
-            ttk.Button(btn_frame, text="Select None", command=lambda: self.toggle_all_chart_features(False), style='Dark.TButton').pack(side=tk.LEFT)
+            ctk.CTkButton(btn_frame, text="Select All", 
+                         command=lambda: self.toggle_all_chart_features(True), 
+                         width=100).pack(side="left", padx=(0, 10))
+            ctk.CTkButton(btn_frame, text="Select None", 
+                         command=lambda: self.toggle_all_chart_features(False), 
+                         width=100).pack(side="left")
             
             # Create grid for chart indicators
-            self.create_feature_grid(chart_frame, self.available_chart_indicators, self.chart_selections, conversion_options)
+            self.create_feature_grid(chart_frame, self.available_chart_indicators, 
+                                   self.chart_selections, conversion_options)
             
         if not self.available_features and not self.available_chart_indicators:
-            ttk.Label(self.scrollable_frame, text="No features available. Please load feature files first.", 
-                     style='Dark.TLabel').pack(pady=50)
+            ctk.CTkLabel(self.scrollable_frame, text="No features available. Please load feature files first.", 
+                        font=ctk.CTkFont(size=14)).pack(pady=50)
                      
     def create_feature_grid(self, parent, features, selections_dict, conversion_options):
-        """Create a grid of feature checkboxes and conversion dropdowns"""
+        """Create a grid of feature checkboxes and conversion dropdowns with parameter fields"""
+        grid_frame = ctk.CTkFrame(parent)
+        grid_frame.pack(fill="x", padx=15, pady=(0, 15))
+        
         # Header
-        header_frame = ttk.Frame(parent, style='Dark.TFrame')
-        header_frame.pack(fill=tk.X, pady=(0, 5))
+        header_frame = ctk.CTkFrame(grid_frame, fg_color=("#3B8ED0", "#1F6AA5"))
+        header_frame.pack(fill="x", padx=5, pady=5)
+        header_frame.grid_columnconfigure(0, weight=0, minsize=80)
+        header_frame.grid_columnconfigure(1, weight=2, minsize=200)
+        header_frame.grid_columnconfigure(2, weight=1, minsize=150)
+        header_frame.grid_columnconfigure(3, weight=1, minsize=120)
         
-        ttk.Label(header_frame, text="Feature", style='Dark.TLabel', font=('Segoe UI', 10, 'bold')).grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
-        ttk.Label(header_frame, text="Convert", style='Dark.TLabel', font=('Segoe UI', 10, 'bold')).grid(row=0, column=1, sticky=tk.W)
+        ctk.CTkLabel(header_frame, text="Select", font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=0, padx=10, pady=8, sticky="w")
+        ctk.CTkLabel(header_frame, text="Feature", font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=1, padx=10, pady=8, sticky="w")
+        ctk.CTkLabel(header_frame, text="Conversion", font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=2, padx=10, pady=8, sticky="w")
+        ctk.CTkLabel(header_frame, text="Parameters", font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=3, padx=10, pady=8, sticky="w")
         
-        # Features grid in chunks for better performance
-        features_frame = ttk.Frame(parent, style='Dark.TFrame')
-        features_frame.pack(fill=tk.X)
-        
+        # Features
         for i, feature in enumerate(features):
-            row = i // 2
-            col_offset = (i % 2) * 3
-            
             # Checkbox for selection
-            selected_var = tk.BooleanVar()
-            conversion_var = tk.StringVar(value="None")
-            selections_dict[feature] = (selected_var, conversion_var)
+            selected_var = ctk.BooleanVar()
+            conversion_var = ctk.StringVar(value="None")
+            params_var = ctk.StringVar(value="")
+            selections_dict[feature] = (selected_var, conversion_var, params_var)
             
-            checkbox = ttk.Checkbutton(features_frame, text=feature, variable=selected_var, style='Dark.TCheckbutton')
-            checkbox.grid(row=row, column=col_offset, sticky=tk.W, padx=(0, 10), pady=2)
+            # Row frame with hover effect
+            row_frame = ctk.CTkFrame(grid_frame, fg_color=("gray90", "gray13"))
+            row_frame.pack(fill="x", padx=5, pady=1)
+            row_frame.grid_columnconfigure(0, weight=0, minsize=80)
+            row_frame.grid_columnconfigure(1, weight=2, minsize=200)
+            row_frame.grid_columnconfigure(2, weight=1, minsize=150)
+            row_frame.grid_columnconfigure(3, weight=1, minsize=120)
+            
+            # Add hover effect
+            def on_enter(event, frame=row_frame):
+                frame.configure(fg_color=("#E1E8ED", "#212121"))
+            def on_leave(event, frame=row_frame):
+                frame.configure(fg_color=("gray90", "gray13"))
+                
+            row_frame.bind("<Enter>", on_enter)
+            row_frame.bind("<Leave>", on_leave)
+            
+            checkbox = ctk.CTkCheckBox(row_frame, text="", variable=selected_var, width=20)
+            checkbox.grid(row=0, column=0, padx=10, pady=8, sticky="w")
+            checkbox.bind("<Enter>", on_enter)
+            checkbox.bind("<Leave>", on_leave)
+            
+            # Feature name label
+            feature_label = ctk.CTkLabel(row_frame, text=feature, anchor="w")
+            feature_label.grid(row=0, column=1, padx=10, pady=8, sticky="ew")
+            feature_label.bind("<Enter>", on_enter)
+            feature_label.bind("<Leave>", on_leave)
             
             # Conversion dropdown
-            combo = ttk.Combobox(features_frame, textvariable=conversion_var, values=conversion_options, 
-                               state="readonly", style='Dark.TCombobox', width=15)
-            combo.grid(row=row, column=col_offset+1, sticky=tk.W, padx=(0, 30), pady=2)
+            combo = ctk.CTkComboBox(row_frame, variable=conversion_var, values=conversion_options, 
+                                   width=140, state="readonly")
+            combo.grid(row=0, column=2, padx=10, pady=8, sticky="w")
+            
+            # Parameters entry field
+            params_entry = ctk.CTkEntry(row_frame, textvariable=params_var, width=110, 
+                                       placeholder_text="window=20,span=50")
+            params_entry.grid(row=0, column=3, padx=10, pady=8, sticky="w")
             
     def toggle_all_features(self, select: bool):
         """Toggle all CSV feature selections"""
-        for selected_var, _ in self.feature_selections.values():
+        for selected_var, _, _ in self.feature_selections.values():  # UPDATED: 3-tuple now
             selected_var.set(select)
             
     def toggle_all_chart_features(self, select: bool):
         """Toggle all chart indicator selections"""
-        for selected_var, _ in self.chart_selections.values():
+        for selected_var, _, _ in self.chart_selections.values():  # UPDATED: 3-tuple now
             selected_var.set(select)
             
     def validate_inputs(self) -> bool:
@@ -450,8 +482,8 @@ class TradeAnalysisGUI:
             return False
             
         # Check if any features are selected
-        csv_selected = any(selected.get() for selected, _ in self.feature_selections.values())
-        chart_selected = any(selected.get() for selected, _ in self.chart_selections.values()) if self.chart_selections else False
+        csv_selected = any(selected.get() for selected, _, _ in self.feature_selections.values())  # UPDATED: 3-tuple
+        chart_selected = any(selected.get() for selected, _, _ in self.chart_selections.values()) if self.chart_selections else False  # UPDATED: 3-tuple
         
         if not csv_selected and not chart_selected:
             messagebox.showerror("No Features", "Please select at least one feature to analyze.")
@@ -464,21 +496,49 @@ class TradeAnalysisGUI:
         selected_features = []
         feature_transforms = {}
         
+        # Helper to parse parameters string
+        def parse_params(params_str: str) -> dict:
+            params = {}
+            if params_str.strip():
+                try:
+                    for param in params_str.split(','):
+                        if '=' in param:
+                            key, value = param.strip().split('=', 1)
+                            # Try to convert to int, float, or keep as string
+                            try:
+                                if '.' in value:
+                                    params[key.strip()] = float(value.strip())
+                                else:
+                                    params[key.strip()] = int(value.strip())
+                            except ValueError:
+                                params[key.strip()] = value.strip()
+                except Exception:
+                    pass  # Ignore malformed parameters
+            return params
+        
         # CSV features
-        for feature, (selected_var, conversion_var) in self.feature_selections.items():
+        for feature, (selected_var, conversion_var, params_var) in self.feature_selections.items():
             if selected_var.get():
                 selected_features.append(feature)
                 conversion = conversion_var.get()
                 if conversion != "None":
-                    feature_transforms[feature] = conversion
+                    params = parse_params(params_var.get())
+                    if params:
+                        feature_transforms[feature] = {"mode": conversion, **params}
+                    else:
+                        feature_transforms[feature] = conversion
                     
         # Chart indicators - ADD SELECTED ONES TO features LIST
-        for indicator, (selected_var, conversion_var) in self.chart_selections.items():
+        for indicator, (selected_var, conversion_var, params_var) in self.chart_selections.items():
             if selected_var.get():
                 selected_features.append(indicator)  # ADD to main features list
                 conversion = conversion_var.get()
                 if conversion != "None":
-                    feature_transforms[indicator] = conversion
+                    params = parse_params(params_var.get())
+                    if params:
+                        feature_transforms[indicator] = {"mode": conversion, **params}
+                    else:
+                        feature_transforms[indicator] = conversion
         
         return selected_features, feature_transforms
         
@@ -487,13 +547,11 @@ class TradeAnalysisGUI:
         if not self.validate_inputs():
             return
             
-        # Disable start button and show progress
-        for widget in self.scrollable_frame.winfo_children():
-            if isinstance(widget, ttk.Button):
-                widget.configure(state='disabled')
-                
         self.progress.start()
-        self.status_label.config(text="Running trade analysis...")
+        self.status_label.configure(text="Running trade analysis...")
+        
+        # Update group_by from radio button
+        self.group_by.set(self.radio_var.get())
         
         # Run analysis in separate thread to prevent GUI freezing
         analysis_thread = threading.Thread(target=self.run_analysis_thread)
@@ -515,72 +573,4 @@ class TradeAnalysisGUI:
                 'save_dir': "./data/trade_analysis",
                 'verbose': True,
                 'merge_tolerance': None,
-                'feature_transforms': feature_transforms if feature_transforms else None,
-                'ohlcv_csv_path': self.ohlcv_path.get() if self.ohlcv_path.get() else None,
-                'chart_config': None
-            }
-            
-            # Run the analysis
-            run_trade_analysis(**kwargs)
-            
-            # Update GUI on success
-            self.root.after(0, self.analysis_complete_success)
-            
-        except Exception as e:
-            # Update GUI on error
-            self.root.after(0, lambda: self.analysis_complete_error(str(e)))
-            
-    def analysis_complete_success(self):
-        """Handle successful analysis completion"""
-        self.progress.stop()
-        self.status_label.config(text="Analysis completed successfully!")
-        
-        # Re-enable buttons
-        for widget in self.scrollable_frame.winfo_children():
-            if isinstance(widget, ttk.Button):
-                widget.configure(state='normal')
-                
-        messagebox.showinfo("Success", "Trade analysis completed successfully!\nResults saved to ./data/trade_analysis")
-        
-    def analysis_complete_error(self, error_msg: str):
-        """Handle analysis error"""
-        self.progress.stop()
-        self.status_label.config(text="Analysis failed")
-        
-        # Re-enable buttons
-        for widget in self.scrollable_frame.winfo_children():
-            if isinstance(widget, ttk.Button):
-                widget.configure(state='normal')
-                
-        messagebox.showerror("Error", f"Analysis failed:\n{error_msg}")
-        
-    def reset_all(self):
-        """Reset all inputs and selections"""
-        if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all inputs?"):
-            self.trades_path.set("")
-            self.ohlcv_path.set("")
-            self.feature_paths.clear()
-            self.feature_listbox.delete(0, tk.END)
-            self.available_features.clear()
-            self.available_chart_indicators.clear()
-            self.feature_selections.clear()
-            self.chart_selections.clear()
-            
-            # Clear feature selection UI
-            for widget in self.scrollable_frame.winfo_children():
-                widget.destroy()
-                
-            self.no_features_label = ttk.Label(self.scrollable_frame, 
-                                              text="Please load feature files first in the File Selection tab",
-                                              style='Dark.TLabel', font=('Segoe UI', 11, 'italic'))
-            self.no_features_label.pack(pady=50)
-            
-            self.status_label.config(text="Ready to start analysis")
-            
-    def run(self):
-        """Start the GUI application"""
-        self.root.mainloop()
-
-if __name__ == "__main__":
-    app = TradeAnalysisGUI()
-    app.run()
+                '
