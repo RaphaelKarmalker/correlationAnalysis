@@ -472,16 +472,13 @@ class TradeAnalysisGUI:
                 if conversion != "None":
                     feature_transforms[feature] = conversion
                     
-        # Chart indicators (these will be added automatically by run_trade_analysis)
-        chart_transforms = {}
+        # Chart indicators - ADD SELECTED ONES TO features LIST
         for indicator, (selected_var, conversion_var) in self.chart_selections.items():
             if selected_var.get():
+                selected_features.append(indicator)  # ADD to main features list
                 conversion = conversion_var.get()
                 if conversion != "None":
-                    chart_transforms[indicator] = conversion
-                    
-        # Merge chart transforms into feature transforms
-        feature_transforms.update(chart_transforms)
+                    feature_transforms[indicator] = conversion
         
         return selected_features, feature_transforms
         

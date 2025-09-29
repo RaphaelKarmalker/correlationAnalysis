@@ -46,6 +46,7 @@ def run_trade_analysis(
     # 2a) (UPDATED) Chart indicators from OHLCV -> align to DatetimeIndex and join with feature_df
     chart_indicators_df: Optional[pd.DataFrame] = None
     ohlcv_base_df: Optional[pd.DataFrame] = None
+    # CHANGED: Only track chart indicators that are actually in the features list
     chart_feature_names: List[str] = []
     if ohlcv_csv_path:
         try:
@@ -70,7 +71,10 @@ def run_trade_analysis(
                 )
 
             if chart_indicators_df is not None:
-                chart_feature_names = list(chart_indicators_df.columns)
+                # CHANGED: Only include chart indicators that are in the features list
+                available_chart_indicators = list(chart_indicators_df.columns)
+                chart_feature_names = [f for f in features if f in available_chart_indicators]
+                
                 # Join onto existing feature_df by DatetimeIndex
                 if feature_df is not None and not feature_df.empty:
                     feature_df = feature_df.join(chart_indicators_df, how="outer")
@@ -78,7 +82,8 @@ def run_trade_analysis(
                     feature_df = chart_indicators_df
 
                 if verbose:
-                    print(f"Added {len(chart_feature_names)} chart indicators from OHLCV (joined by time).")
+                    print(f"Added {len(available_chart_indicators)} chart indicators from OHLCV (joined by time).")
+                    print(f"Selected chart indicators for analysis: {chart_feature_names}")
         except Exception as e:
             print(f"Could not compute chart indicators from '{ohlcv_csv_path}': {e}")
 
@@ -87,8 +92,9 @@ def run_trade_analysis(
 
     # 3a) Optional feature transforms (e.g., zscore, rolling_zscore, robust_zscore)
     features_to_analyse = list(features)
-    if chart_feature_names:  # NEW: ensure chart indicators are analyzed
-        features_to_analyse.extend([c for c in chart_feature_names if c not in features_to_analyse])
+    # REMOVED: Don't automatically add chart indicators
+    # The features list now already contains user-selected chart indicators from GUI
+    
     plot_name_map: Dict[str, str] = {}
     if feature_transforms:
         if verbose:
@@ -212,7 +218,7 @@ def run_trade_analysis(
         if (
             ohlcv_base_df is not None
             and chart_indicators_df is not None
-            and feature in chart_feature_names
+            and feature in chart_feature_names  # CHANGED: Only plot selected chart indicators
         ):
             try:
                 ind_series = chart_indicators_df[feature].dropna().sort_index()
