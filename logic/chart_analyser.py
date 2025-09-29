@@ -260,3 +260,16 @@ class ChartAnalyser:
         result.insert(0, "timestamp", df.index.strftime("%Y-%m-%d %H:%M:%S"))
         return result.reset_index(drop=True)
 
+    # NEW: accessor to get OHLCV (with timestamp) for plotting overlays
+    def get_ohlcv(self) -> pd.DataFrame:
+        """
+        Returns a DataFrame with columns ['timestamp','open','high','low','close','volume'].
+        """
+        if self.df is None:
+            self.load()
+        base = self.df[['open', 'high', 'low', 'close', 'volume']].copy()
+        ts = self.df.index.strftime("%Y-%m-%d %H:%M:%S")
+        out = base.copy()
+        out.insert(0, "timestamp", ts)
+        return out.reset_index(drop=True)
+

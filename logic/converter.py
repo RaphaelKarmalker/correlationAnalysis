@@ -25,6 +25,9 @@ def minmax(s: pd.Series) -> pd.Series:
 	den = vmax - vmin
 	return (s - vmin) / den if den and den != 0 else pd.Series(np.zeros(len(s), dtype=float), index=s.index)
 
+def normalize(s: pd.Series) -> pd.Series:
+	return (s - s.mean()) / (s.max() - s.min())
+
 def rank_pct(s: pd.Series) -> pd.Series:
 	return s.rank(method='average', pct=True)
 
@@ -36,66 +39,67 @@ _TRANSFORMS = {
 	'robust_zscore': lambda s, **kw: robust_zscore(s),
 	'rolling_zscore': lambda s, **kw: rolling_zscore(s, window=int(kw.get('window', 20)), min_periods=kw.get('min_periods')),
 	'minmax': lambda s, **kw: minmax(s),
+	'normalize': lambda s, **kw: normalize(s),
 	'rank_pct': lambda s, **kw: rank_pct(s),
 	'log1p_signed': lambda s, **kw: log1p_signed(s),
 }
 
+
 def apply_feature_transforms(
-	df: pd.DataFrame,
-	transforms: Optional[Dict[str, Any]],
-	inplace: bool = True,
-	default_output: str = 'replace'
+    df: pd.DataFrame,
+    transforms: Optional[Dict[str, Any]],
+    inplace: bool = True,
+    default_output: str = 'replace'
 ) -> pd.DataFrame:
-	"""
-	Applies per-feature transforms on df. transforms can be:
-	- {'rsi': 'zscore'}
-	- {'rsi': {'mode': 'rolling_zscore', 'window': 10}}
-	- {'rsi': {'mode': 'rolling_zscore', 'window': 10, 'output': 'suffix', 'suffix': 'rsi_rz10'}}
-	Supported modes: zscore, robust_zscore, rolling_zscore, minmax, rank_pct, log1p_signed
-	output: 'replace' (default) replaces original column; 'suffix' creates new column.
-	"""
-	if not transforms:
-		return df
+    """
+    Applies per-feature transforms on df. transforms can be:
+      - {'rsi': 'zscore'}
+      - {'rsi': {'mode': 'rolling_zscore', 'window': 10}}
+      - {'rsi': {'mode': 'rolling_zscore', 'window': 10, 'output': 'suffix', 'suffix': 'rsi_rz10'}}
+    Supported modes: zscore, robust_zscore, rolling_zscore, minmax, rank_pct, log1p_signed
+    output: 'replace' (default) replaces original column; 'suffix' creates new column.
+    """
+    if not transforms:
+        return df
 
-	target_df = df if inplace else df.copy()
+    target_df = df if inplace else df.copy()
 
-	for feat, cfg in transforms.items():
-		if feat not in target_df.columns:
-			continue
-		series = pd.to_numeric(target_df[feat], errors='coerce')
+    for feat, cfg in transforms.items():
+        if feat not in target_df.columns:
+            continue
 
-		# Parse config
-		if isinstance(cfg, str):
-			mode = cfg
-			params: Dict[str, Any] = {}
-			output = default_output
-			suffix = None
-		elif isinstance(cfg, dict):
-			mode = cfg.get('mode')
-			params = {k: v for k, v in cfg.items() if k not in ('mode', 'output', 'suffix')}
-			output = cfg.get('output', default_output)
-			suffix = cfg.get('suffix')
-		else:
-			continue
+        series = pd.to_numeric(target_df[feat], errors='coerce')
 
-		if mode not in _TRANSFORMS:
-			continue
+        # Parse config
+        if isinstance(cfg, str):
+            mode = cfg
+            params: Dict[str, Any] = {}
+            output = default_output
+            suffix = None
+        elif isinstance(cfg, dict):
+            mode = cfg.get('mode')
+            params = {k: v for k, v in cfg.items() if k not in ('mode', 'output', 'suffix')}
+            output = cfg.get('output', default_output)
+            suffix = cfg.get('suffix')
+        else:
+            continue
 
-		transformed = _TRANSFORMS[mode](series, **params)
+        if mode not in _TRANSFORMS:
+            continue
 
-		if output == 'suffix':
-			if suffix:
-				col_name = suffix
-			else:
-				if mode == 'rolling_zscore':
-					win = int(params.get('window', 20))
-					col_name = f"{feat}_rz{win}"
-				else:
-					col_name = f"{feat}_{mode}"
-			target_df[col_name] = transformed
-		else:
-			target_df[feat] = transformed
+        transformed = _TRANSFORMS[mode](series, **params)
 
-	return target_df
+        if output == 'suffix':
+            if suffix:
+                col_name = suffix
+            else:
+                if mode == 'rolling_zscore':
+                    win = int(params.get('window', 20))
+                    col_name = f"{feat}_rz{win}"
+                else:
+                    col_name = f"{feat}_{mode}"
+            target_df[col_name] = transformed
+        else:
+            target_df[feat] = transformed
 
-
+    return target_df

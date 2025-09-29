@@ -14,8 +14,11 @@ from vis import (
     plot_trade_duration_by_feature,
     plot_trade_gross_profit_loss_by_feature,
     plot_trade_long_short_by_feature,
+    plot_indicator_with_ohlcv,  # NEW: use existing OHLCV overlay from vis
 )
 import matplotlib.pyplot as plt
+from chart_analyser import ChartAnalyser  # NEW: import ChartAnalyser for chart indicator generation
+from data_loader import _parse_any_timestamp as _to_dt  # NEW: robust timestamp parser to align on DatetimeIndex
 
 def run_trade_analysis(
     feature_csv_paths: List[str],
@@ -26,7 +29,9 @@ def run_trade_analysis(
     save_dir: str = "./data/output",
     verbose: bool = False,
     merge_tolerance: Optional[str] = None,
-    feature_transforms: Optional[Dict[str, Any]] = None
+    feature_transforms: Optional[Dict[str, Any]] = None,
+    ohlcv_csv_path: Optional[str] = None,  # NEW: optional OHLCV source
+    chart_config: Optional[Dict[str, Any]] = None  # NEW: chart indicator config
 ):
 
     out = Path(save_dir)
@@ -38,11 +43,52 @@ def run_trade_analysis(
     # 2) Features
     feature_df = load_features(feature_csv_paths, features)
 
+    # 2a) (UPDATED) Chart indicators from OHLCV -> align to DatetimeIndex and join with feature_df
+    chart_indicators_df: Optional[pd.DataFrame] = None
+    ohlcv_base_df: Optional[pd.DataFrame] = None
+    chart_feature_names: List[str] = []
+    if ohlcv_csv_path:
+        try:
+            ca = ChartAnalyser(ohlcv_csv_path).load()
+            chart_indicators_df = ca.compute_all(chart_config)
+            ohlcv_base_df = ca.get_ohlcv()
+
+            # Convert both to DatetimeIndex for consistent joining/plotting
+            if chart_indicators_df is not None and "timestamp" in chart_indicators_df.columns:
+                ts_ci = _to_dt(chart_indicators_df["timestamp"])
+                chart_indicators_df = (
+                    chart_indicators_df.drop(columns=["timestamp"])
+                    .set_index(ts_ci)
+                    .sort_index()
+                )
+            if ohlcv_base_df is not None and "timestamp" in ohlcv_base_df.columns:
+                ts_o = _to_dt(ohlcv_base_df["timestamp"])
+                ohlcv_base_df = (
+                    ohlcv_base_df.drop(columns=["timestamp"])
+                    .set_index(ts_o)
+                    .sort_index()
+                )
+
+            if chart_indicators_df is not None:
+                chart_feature_names = list(chart_indicators_df.columns)
+                # Join onto existing feature_df by DatetimeIndex
+                if feature_df is not None and not feature_df.empty:
+                    feature_df = feature_df.join(chart_indicators_df, how="outer")
+                else:
+                    feature_df = chart_indicators_df
+
+                if verbose:
+                    print(f"Added {len(chart_feature_names)} chart indicators from OHLCV (joined by time).")
+        except Exception as e:
+            print(f"Could not compute chart indicators from '{ohlcv_csv_path}': {e}")
+
     # 3) Merge (forward-only: gleicher oder nächstfolgender Feature-Zeitpunkt)
     merged_dataset = merge_trade_features(trades_df, feature_df, tolerance=merge_tolerance)
 
     # 3a) Optional feature transforms (e.g., zscore, rolling_zscore, robust_zscore)
     features_to_analyse = list(features)
+    if chart_feature_names:  # NEW: ensure chart indicators are analyzed
+        features_to_analyse.extend([c for c in chart_feature_names if c not in features_to_analyse])
     plot_name_map: Dict[str, str] = {}
     if feature_transforms:
         if verbose:
@@ -162,6 +208,26 @@ def run_trade_analysis(
             if f:
                 figs.append(f)
 
+        # UPDATED: Plot OHLCV + indicator for chart indicators using vis helper
+        if (
+            ohlcv_base_df is not None
+            and chart_indicators_df is not None
+            and feature in chart_feature_names
+        ):
+            try:
+                ind_series = chart_indicators_df[feature].dropna().sort_index()
+                overlay_fig = plot_indicator_with_ohlcv(
+                    ohlcv=ohlcv_base_df,
+                    indicator=ind_series,
+                    indicator_name=feature,
+                    title=f"{plot_name_map.get(feature, feature)} + OHLCV",
+                    last_n=300
+                )
+                if overlay_fig is not None:
+                    figs.append(overlay_fig)
+            except Exception as e:
+                print(f"Could not build OHLCV overlay for '{feature}': {e}")
+
         # Save all figures for this feature into its folder
         for fig in figs:
             if fig is not None:
@@ -192,8 +258,15 @@ if __name__ == "__main__":
         verbose=True,
         merge_tolerance=None,  # e.g., '1h' to restrict forward match distance
         feature_transforms={
-    "rsi": "zscore",  # replace with standard z-score
-    "fear_greed": {"mode": "rolling_zscore", "window": 10, "output": "suffix"},  # adds 'fear_greed_rz10'
-    "alt_coin_season_index": "robust_zscore"  # replace with robust z-score
-}
+            "rsi": "zscore",  # replace with standard z-score
+            "fear_greed": {"mode": "rolling_zscore", "window": 10, "output": "suffix"},  # adds 'fear_greed_rz10'
+            "alt_coin_season_index": "robust_zscore",  # replace with robust z-score
+            "ema_8": "zscore",  
+            "ema_21": "zscore",
+            "ema_50": "zscore",
+            "ema_200": "zscore",
+        },
+        # NEW: provide OHLCV to enable chart indicator analysis/plots
+        ohlcv_csv_path="./data/ohlc.csv",
+        chart_config=None
     )
