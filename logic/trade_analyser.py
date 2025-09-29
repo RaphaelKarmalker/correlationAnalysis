@@ -28,7 +28,6 @@ def run_trade_analysis(
     group_by: str = "size",  # "size" => equal-width, "amount" => equal-count
     save_dir: str = "./data/output",
     verbose: bool = False,
-    merge_tolerance: Optional[str] = None,
     feature_transforms: Optional[Dict[str, Any]] = None,
     ohlcv_csv_path: Optional[str] = None,  # NEW: optional OHLCV source
     chart_config: Optional[Dict[str, Any]] = None  # NEW: chart indicator config
@@ -75,9 +74,31 @@ def run_trade_analysis(
                 available_chart_indicators = list(chart_indicators_df.columns)
                 chart_feature_names = [f for f in features if f in available_chart_indicators]
                 
-                # Join onto existing feature_df by DatetimeIndex
+                # FIXED: Use proper merge logic instead of simple join
                 if feature_df is not None and not feature_df.empty:
-                    feature_df = feature_df.join(chart_indicators_df, how="outer")
+                    # Use merge_asof to properly combine CSV features with chart indicators
+                    # Reset indexes for merge_asof
+                    feature_df_reset = feature_df.reset_index()
+                    chart_indicators_reset = chart_indicators_df.reset_index()
+                    
+                    # Get timestamp column name
+                    ts_col = feature_df.index.name or 'timestamp'
+                    
+                    # Use merge_asof to combine them properly
+                    combined_reset = pd.merge_asof(
+                        feature_df_reset.sort_values(ts_col),
+                        chart_indicators_reset.sort_values(ts_col),
+                        left_on=ts_col,
+                        right_on=ts_col,
+                        direction='backward',  # Use most recent past feature value
+                        allow_exact_matches=True
+                    )
+                    
+                    # Set timestamp back as index
+                    feature_df = combined_reset.set_index(ts_col)
+                    
+                    if verbose:
+                        print(f"Combined CSV features with chart indicators using merge_asof")
                 else:
                     feature_df = chart_indicators_df
 
@@ -87,8 +108,8 @@ def run_trade_analysis(
         except Exception as e:
             print(f"Could not compute chart indicators from '{ohlcv_csv_path}': {e}")
 
-    # 3) Merge (forward-only: gleicher oder nächstfolgender Feature-Zeitpunkt)
-    merged_dataset = merge_trade_features(trades_df, feature_df, tolerance=merge_tolerance)
+    # 3) Merge (no tolerance - find same or next available timestamp)
+    merged_dataset = merge_trade_features(trades_df, feature_df)
 
     # 3a) Optional feature transforms (e.g., zscore, rolling_zscore, robust_zscore)
     features_to_analyse = list(features)
