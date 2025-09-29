@@ -77,6 +77,39 @@ class TradePerformanceAnalyser:
                 if duration_series is not None:
                     df_feat['duration_min'] = duration_series.loc[df_feat.index]
 
+                # Infer trade side if available
+                def _infer_side_val(v):
+                    try:
+                        sv = str(v).strip().lower()
+                        if sv in ('long', 'buy', 'bull', 'l', '1', 'true', 'yes'):
+                            return 'long'
+                        if sv in ('short', 'sell', 'bear', 's', '-1', 'false', 'no'):
+                            return 'short'
+                    except Exception:
+                        pass
+                    return np.nan
+
+                side_series = None
+                side_col = None
+                for cand in ['side', 'position_side', 'direction']:
+                    if cand in merged_df.columns:
+                        side_col = cand
+                        break
+                if side_col is not None:
+                    side_series = merged_df[side_col].map(_infer_side_val)
+                elif 'is_long' in merged_df.columns:
+                    side_series = merged_df['is_long'].map(lambda b: 'long' if bool(b) else 'short')
+                elif 'qty' in merged_df.columns:
+                    side_series = merged_df['qty'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
+                elif 'size' in merged_df.columns:
+                    side_series = merged_df['size'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
+
+                if side_series is not None:
+                    try:
+                        df_feat['side'] = side_series.loc[df_feat.index]
+                    except Exception:
+                        df_feat['side'] = np.nan
+
                 # Base aggregates
                 binned = df_feat.groupby(bin_col).agg(
                     mean_pnl=('realized_pnl', 'mean'),
@@ -154,6 +187,22 @@ class TradePerformanceAnalyser:
                         avg_dur = g['duration_min'].mean()
                         med_dur = g['duration_min'].median()
 
+                    # Long/Short aggregates (if side available)
+                    long_total = short_total = np.nan
+                    long_cnt = short_cnt = np.nan
+                    long_wr = short_wr = np.nan
+                    if 'side' in g.columns:
+                        gl = g[g['side'] == 'long']['realized_pnl']
+                        gs = g[g['side'] == 'short']['realized_pnl']
+                        if len(gl):
+                            long_total = float(gl.sum())
+                            long_cnt = int(len(gl))
+                            long_wr = float((gl > 0).mean() * 100.0)
+                        if len(gs):
+                            short_total = float(gs.sum())
+                            short_cnt = int(len(gs))
+                            short_wr = float((gs > 0).mean() * 100.0)
+
                     extra_stats[int(code)] = {
                         'median_pnl': med,
                         'pnl_std': std,
@@ -175,6 +224,13 @@ class TradePerformanceAnalyser:
                         'max_loss_streak': int(max_loss_streak),
                         'avg_duration_min': avg_dur if pd.notna(avg_dur) else 0.0,
                         'median_duration_min': med_dur if pd.notna(med_dur) else 0.0,
+                        # New long/short metrics
+                        'long_total_pnl': long_total,
+                        'short_total_pnl': short_total,
+                        'long_trade_count': long_cnt,
+                        'short_trade_count': short_cnt,
+                        'long_win_rate': long_wr,
+                        'short_win_rate': short_wr,
                     }
 
                 extra_df = pd.DataFrame.from_dict(extra_stats, orient='index').reindex(binned.index)

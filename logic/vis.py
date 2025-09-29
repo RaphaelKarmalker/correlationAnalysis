@@ -352,4 +352,47 @@ def plot_trade_gross_profit_loss_by_feature(analysis_df: pd.DataFrame, feature_n
     fig.subplots_adjust(bottom=0.22)
     return fig
 
+def plot_trade_long_short_by_feature(analysis_df: pd.DataFrame, feature_name: str):
+    """
+    Plot long vs short PnL per bin with trade counts.
+    Requires columns: long_total_pnl, short_total_pnl, long_trade_count, short_trade_count.
+    Returns None if not available.
+    """
+    needed = ['long_total_pnl', 'short_total_pnl', 'long_trade_count', 'short_trade_count']
+    if any(col not in analysis_df.columns for col in needed):
+        return None
+    if analysis_df[["long_total_pnl", "short_total_pnl"]].isna().all().all():
+        return None
+
+    df, labels = _prepare_binned_positions(analysis_df, feature_name)
+
+    fig_width = max(10, min(24, 0.9 * len(df) + 8))
+    fig, ax1 = plt.subplots(1, 1, figsize=(fig_width, 6), sharex=True)
+    fig.suptitle(f'Long vs Short PnL by {feature_name.upper()} Bins', fontsize=14)
+
+    width = 0.4
+    ax1.bar(df['pos'] - width/2, df['long_total_pnl'], width=width, color='seagreen', label='Long Total PnL')
+    ax1.bar(df['pos'] + width/2, df['short_total_pnl'], width=width, color='indianred', label='Short Total PnL')
+    ax1.axhline(0, color='black', linewidth=0.8)
+    ax1.set_ylabel('Total PnL')
+    ax1.legend(loc='upper left')
+
+    ax2 = ax1.twinx()
+    ax2.plot(df['pos'], df['long_trade_count'], color='darkgreen', marker='o', label='Long Trades')
+    ax2.plot(df['pos'], df['short_trade_count'], color='darkred', marker='x', label='Short Trades')
+    ax2.set_ylabel('Trade Count')
+
+    # Build combined legend
+    lines, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels1 + labels2, loc='upper right')
+
+    ax1.set_xticks(df['pos'])
+    ax1.set_xticklabels(labels, rotation=30, ha='right')
+    ax1.set_xlabel(f'{feature_name} bin (range)')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig.subplots_adjust(bottom=0.22)
+    return fig
+
 
