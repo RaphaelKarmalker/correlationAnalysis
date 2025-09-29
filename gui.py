@@ -15,7 +15,7 @@ from logic.data_loader import load_features
 from logic.chart_analyser import ChartAnalyser
 
 # Import help text constants
-from utils import (
+from logic.utils.utils import (
     WORKFLOW_HELP_TEXT, INDICATORS_HELP_TEXT, CONVERSIONS_HELP_TEXT, 
     FILE_FORMATS_HELP_TEXT, ADVANCED_HELP_TEXT, CONVERSION_OPTIONS
 )
