@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 from data_loader import load_dataset
 from correlation_analyser import AdvancedCorrelationAnalyser as CorrelationAnalyser
-from visualise import (quick_dashboard, plot_selected_cross_correlations, 
+from vis import (quick_dashboard, plot_selected_cross_correlations, 
                       plot_rolling_correlations, plot_lag_analysis, 
                       plot_correlation_comparison)
 import matplotlib.pyplot as plt
@@ -15,7 +15,7 @@ def run(
     rolling_window: int = 50,
     top_n_plots: int = 10,
     show_plots: bool = True,
-    save_dir: str = None,
+    save_dir: str = "./data/output",
     compute_distance: bool = True,
     compute_partial: bool = True,
     compute_cross: bool = True,
@@ -54,17 +54,30 @@ def run(
     ).head(20).to_string(index=False))
 
     if show_plots:
-        quick_dashboard(results, top_features=top_n_plots)
-        plot_correlation_comparison(results, top_n=top_n_plots)
+        out = Path(save_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        all_figures = []
+        
+        # Collect all figures
+        all_figures.extend(quick_dashboard(results, top_features=top_n_plots))
+        all_figures.append(plot_correlation_comparison(results, top_n=top_n_plots))
         
         if compute_cross and results.cross_correlation_curves:
-            plot_selected_cross_correlations(results, top_by="pearson", top_n=min(5, top_n_plots))
-            plot_lag_analysis(results, top_n=min(8, top_n_plots))
+            all_figures.extend(plot_selected_cross_correlations(results, top_by="pearson", top_n=min(5, top_n_plots)))
+            lag_fig = plot_lag_analysis(results, top_n=min(8, top_n_plots))
+            if lag_fig:
+                all_figures.append(lag_fig)
             
         if compute_rolling and results.rolling_correlations:
-            plot_rolling_correlations(results.rolling_correlations,
-                                      feature_list=results.summary.head(min(5, top_n_plots)).feature.tolist())
-        plt.show()
+            all_figures.extend(plot_rolling_correlations(results.rolling_correlations,
+                                      feature_list=results.summary.head(min(5, top_n_plots)).feature.tolist()))
+
+        # Save all figures
+        for i, fig in enumerate(all_figures, 1):
+            if fig is not None:
+                fig.savefig(out / f"correlation_plot_{i:02d}.png", dpi=150, bbox_inches='tight')
+                plt.close(fig)
 
     if save_dir:
         out = Path(save_dir)
@@ -72,7 +85,6 @@ def run(
         results.summary.to_csv(out / "correlation_summary.csv", index=False)
         results.feature_corr_matrix_pearson.to_csv(out / "feature_corr_pearson.csv")
         results.feature_corr_matrix_spearman.to_csv(out / "feature_corr_spearman.csv")
-        # Optionally: save figures programmatically (requires modifying plotting funcs to return fig)
 
 if __name__ == "__main__":
     # Direkt hier Parameter definieren (statt CLI Flags)
@@ -85,7 +97,7 @@ if __name__ == "__main__":
         rolling_window=50,
         top_n_plots=15,
         show_plots=True,
-        save_dir=None,
+        save_dir="./data/output",
         compute_distance=True,
         compute_partial=True,
         compute_cross=True,
