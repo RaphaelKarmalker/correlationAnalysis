@@ -572,5 +572,79 @@ class TradeAnalysisGUI:
                 'group_by': self.group_by.get(),
                 'save_dir': "./data/trade_analysis",
                 'verbose': True,
-                'merge_tolerance': None,
-                '
+                'feature_transforms': feature_transforms if feature_transforms else None
+            }
+            
+            # Add OHLCV path if provided
+            if self.ohlcv_path.get():
+                kwargs['ohlcv_csv_path'] = self.ohlcv_path.get()
+            
+            # Run the analysis
+            run_trade_analysis(**kwargs)
+            
+            # Update GUI on main thread
+            self.root.after(0, self.analysis_completed_success)
+            
+        except Exception as e:
+            # Update GUI on main thread with error
+            self.root.after(0, lambda: self.analysis_completed_error(str(e)))
+            
+    def analysis_completed_success(self):
+        """Called when analysis completes successfully"""
+        self.progress.stop()
+        self.status_label.configure(text="Analysis completed successfully!")
+        messagebox.showinfo("Success", 
+                           "Trade analysis completed successfully!\n\n"
+                           "Results saved to: ./data/trade_analysis\n"
+                           "Check the output folder for CSV files and plots.")
+        
+    def analysis_completed_error(self, error_msg: str):
+        """Called when analysis encounters an error"""
+        self.progress.stop()
+        self.status_label.configure(text="Analysis failed")
+        messagebox.showerror("Analysis Error", f"Analysis failed with error:\n\n{error_msg}")
+        
+    def reset_all(self):
+        """Reset all inputs and selections"""
+        # Clear file paths
+        self.trades_path.set("")
+        self.ohlcv_path.set("")
+        self.feature_paths.clear()
+        
+        # Reset settings
+        self.num_bins.set(10)
+        self.radio_var.set("amount")
+        
+        # Clear feature selections
+        self.available_features.clear()
+        self.available_chart_indicators.clear()
+        self.feature_selections.clear()
+        self.chart_selections.clear()
+        
+        # Update displays
+        self.update_feature_list_display()
+        self.create_initial_feature_tab()
+        
+        # Reset status
+        self.progress.stop()
+        self.status_label.configure(text="Ready to start analysis")
+        
+    def create_initial_feature_tab(self):
+        """Reset feature selection tab to initial state"""
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+            
+        self.no_features_label = ctk.CTkLabel(self.scrollable_frame, 
+                                             text="Please load feature files first in the File Selection tab",
+                                             font=ctk.CTkFont(size=14, slant="italic"))
+        self.no_features_label.pack(pady=50)
+        
+    def show_help_window(self):
+        """Show help window with usage instructions"""
+        help_window = ctk.CTkToplevel(self.root)
+        help_window.title("Help - Trade Analysis Dashboard")
+        help_window.geometry("800x600")
+
+if __name__ == "__main__":
+    app = TradeAnalysisGUI()
+    app.root.mainloop()
