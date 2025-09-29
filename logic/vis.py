@@ -395,4 +395,57 @@ def plot_trade_long_short_by_feature(analysis_df: pd.DataFrame, feature_name: st
     fig.subplots_adjust(bottom=0.22)
     return fig
 
+def plot_indicator_with_ohlcv(ohlcv: pd.DataFrame, indicator: pd.Series, indicator_name: str, title: Optional[str] = None, last_n: Optional[int] = 300):
+    """
+    Draw simple OHLC candlesticks with an indicator overlaid (second y-axis).
+    - ohlcv: DataFrame with index=datetime and columns ['open','high','low','close','volume']
+    - indicator: datetime-indexed Series to align to ohlcv
+    """
+    needed_cols = {'open','high','low','close','volume'}
+    if ohlcv is None or not needed_cols.issubset(set(ohlcv.columns)):
+        return None
+    if indicator is None or indicator.empty:
+        return None
+
+    df = ohlcv.copy().sort_index()
+    ind = indicator.reindex(df.index).ffill()
+
+    if last_n and len(df) > last_n:
+        df = df.iloc[-last_n:]
+        ind = ind.iloc[-last_n:]
+
+    # integer x positions with datetime labels
+    df = df.copy()
+    df['pos'] = np.arange(len(df))
+    pos = df['pos'].values
+    dates = df.index
+
+    fig, ax = plt.subplots(1, 1, figsize=(max(10, min(24, 0.04 * len(df) + 10)), 6))
+    fig.suptitle(title or f'OHLCV + {indicator_name}', fontsize=14)
+
+    # Candlestick (simple)
+    width = 0.6
+    up = df['close'] >= df['open']
+    down = ~up
+    # Wicks
+    ax.vlines(pos, df['low'], df['high'], color='black', linewidth=1)
+    # Bodies
+    ax.bar(pos[up], (df.loc[up, 'close'] - df.loc[up, 'open']), width=width, bottom=df.loc[up, 'open'], color='#2ca02c', edgecolor='black')
+    ax.bar(pos[down], (df.loc[down, 'close'] - df.loc[down, 'open']), width=width, bottom=df.loc[down, 'open'], color='#d62728', edgecolor='black')
+
+    ax.set_ylabel('Price')
+
+    ax2 = ax.twinx()
+    ax2.plot(pos, ind.values, color='royalblue', linewidth=1.3, label=indicator_name)
+    ax2.set_ylabel(indicator_name, color='royalblue')
+    ax2.tick_params(axis='y', labelcolor='royalblue')
+
+    ax.set_xticks(pos[::max(1, len(pos)//10)])
+    ax.set_xticklabels([d.strftime("%Y-%m-%d %H:%M") for d in dates[::max(1, len(pos)//10)]], rotation=30, ha='right')
+    ax.set_xlabel('Time')
+
+    ax.grid(True, axis='y', alpha=0.3)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    return fig
+
 

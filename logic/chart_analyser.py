@@ -216,4 +216,47 @@ class ChartAnalyser:
         for n in cfg["sma_periods"]:
             out[f"sma_{n}"] = self._sma(df['close'], n=int(n))
         for n in cfg["ema_periods"]:
-            out[f"ema_{n}"] = self
+            out[f"ema_{n}"] = self._ema(df['close'], n=int(n))
+
+        # VWAP
+        out["vwap"] = self._vwap(df['high'], df['low'], df['close'], df['volume'])
+
+        # ATR
+        out[f"atr_{int(cfg['atr_period'])}"] = self._atr(df['high'], df['low'], df['close'], n=int(cfg['atr_period']))
+
+        # Bollinger Bands
+        bb = self._bollinger(df['close'], n=int(cfg['bb_period']), k=float(cfg['bb_k']))
+        out[f"bb_{cfg['bb_period']}_mid"] = bb["bb_mid"]
+        out[f"bb_{cfg['bb_period']}_upper_{cfg['bb_k']}"] = bb["bb_upper"]
+        out[f"bb_{cfg['bb_period']}_lower_{cfg['bb_k']}"] = bb["bb_lower"]
+
+        # MACD
+        macd_cfg = cfg["macd"]
+        macd = self._macd(df['close'], fast=int(macd_cfg["fast"]), slow=int(macd_cfg["slow"]), signal=int(macd_cfg["signal"]))
+        out[f"macd_{macd_cfg['fast']}_{macd_cfg['slow']}"] = macd["macd"]
+        out[f"macd_signal_{macd_cfg['signal']}"] = macd["macd_signal"]
+        out["macd_hist"] = macd["macd_hist"]
+
+        # Stochastic
+        stoch_cfg = cfg["stoch"]
+        st = self._stoch(df['high'], df['low'], df['close'], k=int(stoch_cfg['k']), d=int(stoch_cfg['d']))
+        out[f"stoch_k_{stoch_cfg['k']}"] = st["stoch_k"]
+        out[f"stoch_d_{stoch_cfg['d']}"] = st["stoch_d"]
+
+        # MFI
+        out[f"mfi_{int(cfg['mfi_period'])}"] = self._mfi(df['high'], df['low'], df['close'], df['volume'], n=int(cfg['mfi_period']))
+
+        # OBV
+        out["obv"] = self._obv(df['close'], df['volume'])
+
+        # CCI
+        out[f"cci_{int(cfg['cci_period'])}"] = self._cci(df['high'], df['low'], df['close'], n=int(cfg['cci_period']))
+
+        # ROC
+        out[f"roc_{int(cfg['roc_period'])}"] = self._roc(df['close'], n=int(cfg['roc_period']))
+
+        # Build final dataframe with formatted timestamp column
+        result = out.copy()
+        result.insert(0, "timestamp", df.index.strftime("%Y-%m-%d %H:%M:%S"))
+        return result.reset_index(drop=True)
+
