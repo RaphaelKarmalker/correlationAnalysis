@@ -14,6 +14,12 @@ from logic.trade_analyser import run_trade_analysis
 from logic.data_loader import load_features
 from logic.chart_analyser import ChartAnalyser
 
+# Import help text constants
+from utils import (
+    WORKFLOW_HELP_TEXT, INDICATORS_HELP_TEXT, CONVERSIONS_HELP_TEXT, 
+    FILE_FORMATS_HELP_TEXT, ADVANCED_HELP_TEXT, CONVERSION_OPTIONS
+)
+
 # Set appearance mode and default color theme
 ctk.set_appearance_mode("dark")  # Modes: "System", "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue", "green", "dark-blue"
@@ -333,14 +339,6 @@ class TradeAnalysisGUI:
         self.feature_selections = {}
         self.chart_selections = {}
         
-        # Conversion options
-        conversion_options = [
-            "None", "zscore", "robust_zscore", "rolling_zscore",
-            "expanding_zscore", "ewm_zscore", "rolling_robust_zscore",
-            "minmax", "rolling_minmax", "expanding_minmax",
-            "pct_change", "diff", "log_return"
-        ]
-        
         # CSV Features section
         if self.available_features:
             csv_frame = ctk.CTkFrame(self.scrollable_frame)
@@ -363,7 +361,7 @@ class TradeAnalysisGUI:
             
             # Create grid for features
             self.create_feature_grid(csv_frame, self.available_features, 
-                                   self.feature_selections, conversion_options)
+                                   self.feature_selections, CONVERSION_OPTIONS)
             
         # Chart indicators section
         if self.available_chart_indicators:
@@ -387,12 +385,54 @@ class TradeAnalysisGUI:
             
             # Create grid for chart indicators
             self.create_feature_grid(chart_frame, self.available_chart_indicators, 
-                                   self.chart_selections, conversion_options)
+                                   self.chart_selections, CONVERSION_OPTIONS)
             
         if not self.available_features and not self.available_chart_indicators:
             ctk.CTkLabel(self.scrollable_frame, text="No features available. Please load feature files first.", 
                         font=ctk.CTkFont(size=14)).pack(pady=50)
                      
+    # Helper: determine if a conversion needs parameters
+    def _conversion_requires_params(self, name: str) -> bool:
+        if not name or name == "None":
+            return False
+        n = str(name).strip().lower()
+        # Common parametric conversions; adjust as needed to match your utils.CONVERSION_OPTIONS
+        if n in {
+            "ema", "sma", "ewm", "lag", "lead", "shift",
+            "resample", "quantile", "winsorize", "diff", "pct_change", "percent_change",
+        }:
+            return True
+        # Rolling-family generally needs a window/size param
+        if n.startswith("rolling") or "rolling" in n:
+            return True
+        # Some custom converters may be parameterless by design
+        return False
+
+    # Callback to toggle params entry visibility/state when conversion changes
+    def _on_conversion_changed(self, choice: str, params_entry: ctk.CTkEntry, params_var: ctk.StringVar | None = None):
+        needs = self._conversion_requires_params(choice)
+        if needs:
+            # Show and enable params field
+            try:
+                params_entry.grid()
+            except Exception:
+                pass
+            params_entry.configure(state="normal")
+            params_entry.configure(placeholder_text="window=20")
+        else:
+            # Hide and clear params field
+            params_entry.configure(state="disabled")
+            try:
+                params_entry.delete(0, "end")
+            except Exception:
+                pass
+            if params_var is not None:
+                params_var.set("")
+            try:
+                params_entry.grid_remove()
+            except Exception:
+                pass
+
     def create_feature_grid(self, parent, features, selections_dict, conversion_options):
         """Create a grid of feature checkboxes and conversion dropdowns with parameter fields"""
         grid_frame = ctk.CTkFrame(parent)
@@ -451,16 +491,27 @@ class TradeAnalysisGUI:
             feature_label.bind("<Enter>", on_enter)
             feature_label.bind("<Leave>", on_leave)
             
-            # Conversion dropdown
-            combo = ctk.CTkComboBox(row_frame, variable=conversion_var, values=conversion_options, 
-                                   width=140, state="readonly")
-            combo.grid(row=0, column=2, padx=10, pady=8, sticky="w")
-            
-            # Parameters entry field
-            params_entry = ctk.CTkEntry(row_frame, textvariable=params_var, width=110, 
-                                       placeholder_text="window=20,span=50")
+            # Parameters entry (created/gridded, but will be hidden if not needed)
+            params_entry = ctk.CTkEntry(
+                row_frame, textvariable=params_var, width=110,
+                placeholder_text="window=20"
+            )
             params_entry.grid(row=0, column=3, padx=10, pady=8, sticky="w")
-            
+
+            # Conversion dropdown with handler to show/hide params entry
+            combo = ctk.CTkComboBox(
+                row_frame,
+                variable=conversion_var,
+                values=conversion_options,
+                width=140,
+                state="readonly",
+                command=lambda choice, entry=params_entry, pvar=params_var: self._on_conversion_changed(choice, entry, pvar)
+            )
+            combo.grid(row=0, column=2, padx=10, pady=8, sticky="w")
+
+            # Initialize visibility based on default conversion ("None")
+            self._on_conversion_changed(conversion_var.get(), params_entry, params_var)
+
     def toggle_all_features(self, select: bool):
         """Toggle all CSV feature selections"""
         for selected_var, _, _ in self.feature_selections.values():  # UPDATED: 3-tuple now
@@ -643,7 +694,100 @@ class TradeAnalysisGUI:
         """Show help window with usage instructions"""
         help_window = ctk.CTkToplevel(self.root)
         help_window.title("Help - Trade Analysis Dashboard")
-        help_window.geometry("800x600")
+        help_window.geometry("900x700")
+        help_window.resizable(True, True)
+        
+        # Center the help window
+        help_window.update_idletasks()
+        x = (help_window.winfo_screenwidth() // 2) - (450)
+        y = (help_window.winfo_screenheight() // 2) - (350)
+        help_window.geometry(f'+{x}+{y}')
+        
+        # Make it stay on top initially
+        help_window.transient(self.root)
+        help_window.focus()
+        
+        # Main frame
+        main_frame = ctk.CTkFrame(help_window)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        title_label = ctk.CTkLabel(main_frame, text="Trade Analysis Dashboard - Help Guide", 
+                                  font=ctk.CTkFont(size=20, weight="bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # Create tabview for help sections
+        help_tabview = ctk.CTkTabview(main_frame, width=800, height=550)
+        help_tabview.pack(fill="both", expand=True)
+        
+        # Add help tabs
+        help_tabview.add("📋 Workflow")
+        help_tabview.add("📊 Indicators")
+        help_tabview.add("🔧 Conversions")
+        help_tabview.add("📁 File Formats")
+        help_tabview.add("⚙️ Advanced")
+        
+        # Create help content for each tab
+        self.create_workflow_help(help_tabview.tab("📋 Workflow"))
+        self.create_indicators_help(help_tabview.tab("📊 Indicators"))
+        self.create_conversions_help(help_tabview.tab("🔧 Conversions"))
+        self.create_file_formats_help(help_tabview.tab("📁 File Formats"))
+        self.create_advanced_help(help_tabview.tab("⚙️ Advanced"))
+        
+        # Close button
+        close_btn = ctk.CTkButton(main_frame, text="Close", command=help_window.destroy, 
+                                 width=100, height=35)
+        close_btn.pack(pady=(15, 0))
+        
+    def create_workflow_help(self, parent):
+        """Create workflow help content"""
+        scrollable = ctk.CTkScrollableFrame(parent)
+        scrollable.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        text_widget = ctk.CTkTextbox(scrollable, height=400, wrap="word")
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("0.0", WORKFLOW_HELP_TEXT)
+        text_widget.configure(state="disabled")
+        
+    def create_indicators_help(self, parent):
+        """Create indicators help content"""
+        scrollable = ctk.CTkScrollableFrame(parent)
+        scrollable.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        text_widget = ctk.CTkTextbox(scrollable, height=400, wrap="word")
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("0.0", INDICATORS_HELP_TEXT)
+        text_widget.configure(state="disabled")
+        
+    def create_conversions_help(self, parent):
+        """Create conversions help content"""
+        scrollable = ctk.CTkScrollableFrame(parent)
+        scrollable.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        text_widget = ctk.CTkTextbox(scrollable, height=400, wrap="word")
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("0.0", CONVERSIONS_HELP_TEXT)
+        text_widget.configure(state="disabled")
+        
+    def create_file_formats_help(self, parent):
+        """Create file formats help content"""
+        scrollable = ctk.CTkScrollableFrame(parent)
+        scrollable.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        text_widget = ctk.CTkTextbox(scrollable, height=400, wrap="word")
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("0.0", FILE_FORMATS_HELP_TEXT)
+        text_widget.configure(state="disabled")
+        
+    def create_advanced_help(self, parent):
+        """Create advanced help content"""
+        scrollable = ctk.CTkScrollableFrame(parent)
+        scrollable.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        text_widget = ctk.CTkTextbox(scrollable, height=400, wrap="word")
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("0.0", ADVANCED_HELP_TEXT)
+        text_widget.configure(state="disabled")
 
 if __name__ == "__main__":
     app = TradeAnalysisGUI()
