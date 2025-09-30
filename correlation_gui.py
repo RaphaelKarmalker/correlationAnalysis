@@ -90,6 +90,67 @@ class CorrelationAnalysisGUI:
         # Bottom control panel
         self.create_control_panel(main_frame)
         
+    def show_help_window(self):
+        """Show help window with usage instructions"""
+        help_window = ctk.CTkToplevel(self.root)
+        help_window.title("Correlation Analysis Help")
+        help_window.geometry("800x600")
+        help_window.transient(self.root)
+        
+        # Create scrollable text widget
+        help_text = ctk.CTkTextbox(help_window, width=760, height=550)
+        help_text.pack(padx=20, pady=20, fill="both", expand=True)
+        
+        # Add help content
+        help_content = """
+CORRELATION ANALYSIS DASHBOARD HELP
+
+=== WORKFLOW ===
+1. Data Selection: Add CSV files containing your data
+2. Target & Features: Select target variable and features to analyze
+3. Analysis Settings: Configure correlation analysis options
+4. Run Analysis: Execute correlation analysis and view results
+
+=== DATA REQUIREMENTS ===
+- CSV files must have a 'timestamp' column
+- Timestamps can be in various formats (ISO, epoch ns/ms, etc.)
+- Data will be automatically aligned by timestamp
+- Missing values are handled with forward-fill
+
+=== FEATURE CONVERSIONS ===
+Available transformations:
+- None: Use feature as-is
+- log: Natural logarithm
+- sqrt: Square root
+- normalize: Z-score normalization
+- standardize: Same as normalize
+- minmax: Min-max scaling (0-1)
+- ema: Exponential moving average (requires window parameter)
+- sma: Simple moving average (requires window parameter)
+- diff: First difference
+- pct_change: Percentage change
+- lag: Lag the series (requires periods parameter)
+
+=== ANALYSIS TYPES ===
+- Pearson: Linear correlation
+- Spearman: Rank correlation
+- Distance: Distance correlation (captures non-linear relationships)
+- Mutual Information: Information-theoretic dependency
+- Partial: Correlation controlling for other variables
+- Cross-correlation: Time-lagged correlations
+- Rolling: Time-varying correlations
+
+=== OUTPUT ===
+Results are saved to ./data/correlation_analysis/ with:
+- CSV files with correlation matrices and summary
+- Overview plots showing key relationships
+- Individual feature analysis plots
+- Summary statistics and reports
+"""
+        
+        help_text.insert("0.0", help_content)
+        help_text.configure(state="disabled")
+        
     def create_data_selection_tab(self):
         """Create data selection tab"""
         tab_frame = self.tabview.tab("📁 Data Selection")
@@ -652,10 +713,10 @@ class CorrelationAnalysisGUI:
             
             result_df = merged_reset.set_index('timestamp')
         
-        # Sort by timestamp and format timestamp
+        # Sort by timestamp and ensure unique datetime index
         result_df = result_df.sort_index()
-        result_df.index = result_df.index.strftime('%Y-%m-%d %H:%M:%S')
-        
+        # Drop duplicate timestamps keeping the latest row to avoid reindex errors downstream
+        result_df = result_df[~result_df.index.duplicated(keep='last')]
         return result_df
         
     def load_and_merge_data_by_instruments(self, target_csv_path: str, target_feature: str, selected_features: List[str]) -> pd.DataFrame:
@@ -735,22 +796,19 @@ class CorrelationAnalysisGUI:
                 
                 result_df = merged_reset.set_index('timestamp')
             
-            # Add instrument identifier and append to combined list
-            result_df['_instrument_id'] = instrument
+            # Do NOT add instrument id as a column; we will aggregate across instruments by timestamp
             combined_dfs.append(result_df)
         
         # Combine all instruments into one DataFrame
         final_df = pd.concat(combined_dfs, ignore_index=False)
         final_df = final_df.sort_index()
-        
-        # Remove the temporary instrument column
-        final_df = final_df.drop(columns=['_instrument_id'])
-        
-        # Format timestamp
-        final_df.index = final_df.index.strftime('%Y-%m-%d %H:%M:%S')
-        
-        print(f"Combined {len(instruments)} instruments into dataset with {len(final_df)} total rows")
-        
+
+        # Aggregate across instruments per timestamp to avoid duplicate indices
+        # Using mean; NaNs are ignored by default in groupby.mean()
+        final_df = final_df.groupby(level=0).mean()
+
+        # Ensure unique, sorted datetime index (groupby already ensures uniqueness)
+        final_df = final_df.sort_index()
         return final_df
         
     def run_correlation_analysis(self, df: pd.DataFrame, target_col: str, feature_cols: List[str]):
@@ -766,14 +824,22 @@ class CorrelationAnalysisGUI:
         overview_dir.mkdir(exist_ok=True)
         csv_dir.mkdir(exist_ok=True)
         
-        # Initialize correlation analyser
-        analyser = AdvancedCorrelationAnalyser()
+        # Initialize correlation analyser with proper parameters
+        analyser = AdvancedCorrelationAnalyser(
+            max_lag=30,
+            rolling_window=50,
+            compute_distance=True,
+            compute_partial=self.enable_partial_corr.get(),
+            compute_cross=self.enable_lag_analysis.get(),
+            compute_rolling=self.enable_rolling_corr.get(),
+            verbose=True
+        )
         
         # Prepare features and target
         features_df = df[feature_cols].copy()
         target_series = df[target_col].copy()
         
-        # Run analysis with correct method signature
+        # Run analysis
         results = analyser.analyse(features_df, target_series)
         
         # Save all CSV results to csv_results folder
@@ -782,75 +848,149 @@ class CorrelationAnalysisGUI:
         # Create and save plots
         plot_count = 0
         
-        # Overview dashboard plots - save to overview folder
-        dashboard_figs = quick_dashboard(results, top_features=15)
-        for i, fig in enumerate(dashboard_figs):
-            if fig:
-                fig.savefig(overview_dir / f"dashboard_{i+1}.png", dpi=150, bbox_inches='tight')
-                plt.close(fig)
-                plot_count += 1
+        try:
+            # Overview dashboard plots - save to overview folder
+            dashboard_figs = quick_dashboard(results, top_features=15)
+            for i, fig in enumerate(dashboard_figs):
+                if fig:
+                    fig.savefig(overview_dir / f"dashboard_{i+1}.png", dpi=150, bbox_inches='tight')
+                    plt.close(fig)
+                    plot_count += 1
+        except Exception as e:
+            print(f"Error creating dashboard plots: {e}")
         
-        # Correlation comparison - save to overview folder
-        comp_fig = plot_correlation_comparison(results)
-        if comp_fig:
-            comp_fig.savefig(overview_dir / "correlation_comparison.png", dpi=150, bbox_inches='tight')
-            plt.close(comp_fig)
-            plot_count += 1
-        
-        # General lag analysis - save to overview folder
-        if hasattr(results, 'cross_correlation_curves') and results.cross_correlation_curves:
-            lag_fig = plot_lag_analysis(results)
-            if lag_fig:
-                lag_fig.savefig(overview_dir / "lag_analysis_overview.png", dpi=150, bbox_inches='tight')
-                plt.close(lag_fig)
+        try:
+            # Correlation comparison - save to overview folder
+            comp_fig = plot_correlation_comparison(results)
+            if comp_fig:
+                comp_fig.savefig(overview_dir / "correlation_comparison.png", dpi=150, bbox_inches='tight')
+                plt.close(comp_fig)
                 plot_count += 1
+        except Exception as e:
+            print(f"Error creating comparison plot: {e}")
+        
+        try:
+            # General lag analysis - save to overview folder
+            if hasattr(results, 'cross_correlation_curves') and results.cross_correlation_curves:
+                lag_fig = plot_lag_analysis(results)
+                if lag_fig:
+                    lag_fig.savefig(overview_dir / "lag_analysis_overview.png", dpi=150, bbox_inches='tight')
+                    plt.close(lag_fig)
+                    plot_count += 1
+        except Exception as e:
+            print(f"Error creating lag analysis plot: {e}")
         
         # Feature-specific analysis - create individual folders for each feature
-        top_features = results.summary.nlargest(min(len(feature_cols), 20), 'pearson')['feature'].tolist()
-        
-        for feature in top_features:
-            # Create feature-specific folder
-            feature_name_safe = "".join(c for c in feature if c.isalnum() or c in (' ', '_')).strip().replace(' ', '_')
-            feature_dir = output_dir / "features" / feature_name_safe
-            feature_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            top_features = results.summary.nlargest(min(len(feature_cols), 20), 'pearson')['feature'].tolist()
             
-            # Individual cross-correlation plot for this feature
-            if results.cross_correlation_curves and feature in results.cross_correlation_curves:
-                curve = results.cross_correlation_curves[feature]
-                if curve is not None and not curve.empty:
-                    try:
-                        from logic.vis import plot_cross_correlation
-                        fig = plot_cross_correlation(curve, feature)
-                        if fig:
-                            fig.savefig(feature_dir / f"{feature_name_safe}_cross_correlation.png", dpi=150, bbox_inches='tight')
+            for feature in top_features:
+                # Create feature-specific folder
+                feature_name_safe = "".join(c for c in feature if c.isalnum() or c in (' ', '_')).strip().replace(' ', '_')
+                feature_dir = output_dir / "features" / feature_name_safe
+                feature_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Individual cross-correlation plot for this feature
+                if results.cross_correlation_curves and feature in results.cross_correlation_curves:
+                    curve = results.cross_correlation_curves[feature]
+                    if curve is not None and not curve.empty:
+                        try:
+                            from logic.vis import plot_cross_correlation
+                            fig = plot_cross_correlation(curve, feature)
+                            if fig:
+                                fig.savefig(feature_dir / f"{feature_name_safe}_cross_correlation.png", dpi=150, bbox_inches='tight')
+                                plt.close(fig)
+                                plot_count += 1
+                        except Exception as e:
+                            print(f"Could not create cross-correlation plot for {feature}: {e}")
+                
+                # Individual rolling correlation plot for this feature
+                if results.rolling_correlations and feature in results.rolling_correlations:
+                    rolling_series = results.rolling_correlations[feature]
+                    if rolling_series is not None and not rolling_series.empty:
+                        try:
+                            fig, ax = plt.subplots(figsize=(10, 4))
+                            rolling_series.plot(ax=ax)
+                            ax.set_title(f"Rolling Correlation: {feature}")
+                            ax.axhline(0, color="black", linewidth=0.8)
+                            ax.set_ylabel("Correlation")
+                            ax.grid(True, alpha=0.3)
+                            plt.tight_layout()
+                            fig.savefig(feature_dir / f"{feature_name_safe}_rolling_correlation.png", dpi=150, bbox_inches='tight')
                             plt.close(fig)
                             plot_count += 1
-                    except Exception as e:
-                        print(f"Could not create cross-correlation plot for {feature}: {e}")
-            
-            # Individual rolling correlation plot for this feature
-            if results.rolling_correlations and feature in results.rolling_correlations:
-                rolling_series = results.rolling_correlations[feature]
-                if rolling_series is not None and not rolling_series.empty:
-                    try:
-                        import matplotlib.pyplot as plt
-                        fig, ax = plt.subplots(figsize=(10, 4))
-                        rolling_series.plot(ax=ax)
-                        ax.set_title(f"Rolling Correlation: {feature}")
-                        ax.axhline(0, color="black", linewidth=0.8)
-                        ax.set_ylabel("Correlation")
-                        ax.grid(True, alpha=0.3)
-                        plt.tight_layout()
-                        fig.savefig(feature_dir / f"{feature_name_safe}_rolling_correlation.png", dpi=150, bbox_inches='tight')
-                        plt.close(fig)
-                        plot_count += 1
-                    except Exception as e:
-                        print(f"Could not create rolling correlation plot for {feature}: {e}")
-            
-            # Feature summary info
-            try:
-                feature_info = results.summary[results.summary['feature'] == feature].iloc[0]
-                summary_text = f"""
-Feature: {feature}
-Pearson Correlation: {feature_info.get('pearson', 'N/A'):.4f}
-Spearman Correlation
+                        except Exception as e:
+                            print(f"Could not create rolling correlation plot for {feature}: {e}")
+                
+                # Feature summary info
+                try:
+                    feature_info = results.summary[results.summary['feature'] == feature].iloc[0]
+
+                    def _fmt(x):
+                        try:
+                            if pd.isna(x):
+                                return "N/A"
+                        except Exception:
+                            pass
+                        return f"{x:.4f}" if isinstance(x, (int, float)) else str(x)
+
+                    lines = [
+                        f"Feature: {feature}",
+                        f"Pearson: {_fmt(feature_info.get('pearson'))}",
+                        f"Spearman: {_fmt(feature_info.get('spearman'))}",
+                    ]
+                    if 'distance_corr' in results.summary.columns:
+                        lines.append(f"Distance Corr: {_fmt(feature_info.get('distance_corr'))}")
+                    if 'mutual_info_norm' in results.summary.columns:
+                        lines.append(f"Mutual Info (norm): {_fmt(feature_info.get('mutual_info_norm'))}")
+                    if 'partial_corr' in results.summary.columns:
+                        lines.append(f"Partial Corr: {_fmt(feature_info.get('partial_corr'))}")
+                    if 'best_lag' in results.summary.columns:
+                        lines.append(f"Best Lag: {feature_info.get('best_lag')}")
+                    if 'best_cross_corr' in results.summary.columns:
+                        lines.append(f"Cross-Corr @ Best Lag: {_fmt(feature_info.get('best_cross_corr'))}")
+
+                    summary_text = "\n".join(lines) + "\n"
+                    with open(feature_dir / f"{feature_name_safe}_summary.txt", "w", encoding="utf-8") as f:
+                        f.write(summary_text)
+                except Exception as e:
+                    print(f"Could not write summary for {feature}: {e}")
+        except Exception as e:
+            print(f"Error creating feature-specific outputs: {e}")
+        
+        self.status_label.configure(text=f"Analysis completed with {plot_count} plots saved")
+        self.progress.stop()
+        
+    def analysis_completed_success(self):
+        """Handle successful analysis completion"""
+        self.status_label.configure(text="Analysis completed successfully")
+        self.progress.stop()
+        
+    def analysis_completed_error(self, error_msg: str):
+        """Handle analysis completion with error"""
+        self.status_label.configure(text="Analysis failed")
+        self.progress.stop()
+        messagebox.showerror("Analysis Error", f"An error occurred during analysis:\n\n{error_msg}")
+        
+    def reset_all(self):
+        """Reset all inputs and selections"""
+        self.csv_paths = []
+        self.target_csv.set("")
+        self.target_feature.set("")
+        self.available_features = {}
+        self.all_features = []
+        self.feature_selections = {}
+        self.has_instruments = False
+        self.split_by_instruments.set(False)
+        
+        self.update_csv_list_display()
+        self.create_feature_selection_ui()
+        self.status_label.configure(text="Ready to start analysis")
+        
+    def run(self):
+        """Run the main GUI loop"""
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    app = CorrelationAnalysisGUI()
+    app.run()

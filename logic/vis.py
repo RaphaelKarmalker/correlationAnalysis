@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Optional
-from correlation_analyser import CorrelationResults
+from .correlation_analyser import CorrelationResults
 import numpy as np
 
 def plot_feature_target_bar(summary: pd.DataFrame, metric: str = "pearson", top: Optional[int] = None):
