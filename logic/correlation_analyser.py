@@ -6,6 +6,7 @@ from scipy.stats import spearmanr, pearsonr
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.preprocessing import StandardScaler
 import warnings
+from pathlib import Path
 warnings.filterwarnings('ignore')
 
 try:
@@ -24,6 +25,50 @@ class CorrelationResults:
     cross_correlation_curves: Optional[Dict[str, pd.Series]] = None
     rolling_correlations: Optional[Dict[str, pd.Series]] = None
     distance_correlations: Optional[pd.DataFrame] = None
+
+    def save_results(self, output_dir: str):
+        """Save all correlation results to CSV files"""
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save summary
+        self.summary.to_csv(output_path / "correlation_summary.csv", index=False)
+        
+        # Save correlation matrices
+        self.feature_corr_matrix_pearson.to_csv(output_path / "feature_correlation_pearson.csv")
+        self.feature_corr_matrix_spearman.to_csv(output_path / "feature_correlation_spearman.csv")
+        
+        # Save partial correlations if available
+        if self.partial_correlations is not None:
+            self.partial_correlations.to_csv(output_path / "partial_correlations.csv")
+        
+        # Save cross-correlation curves if available
+        if self.cross_correlation_curves:
+            cross_corr_df = pd.DataFrame(self.cross_correlation_curves)
+            cross_corr_df.to_csv(output_path / "cross_correlation_curves.csv")
+        
+        # Save rolling correlations if available
+        if self.rolling_correlations:
+            # Convert rolling correlations dict to DataFrame
+            rolling_df_data = {}
+            max_len = max(len(series) if series is not None else 0 
+                         for series in self.rolling_correlations.values())
+            
+            for feature, series in self.rolling_correlations.items():
+                if series is not None:
+                    # Pad with NaN to match max length
+                    padded_series = series.reindex(range(max_len))
+                    rolling_df_data[feature] = padded_series
+                else:
+                    rolling_df_data[feature] = pd.Series([np.nan] * max_len)
+            
+            if rolling_df_data:
+                rolling_df = pd.DataFrame(rolling_df_data)
+                rolling_df.to_csv(output_path / "rolling_correlations.csv")
+        
+        # Save distance correlations if available
+        if self.distance_correlations is not None:
+            self.distance_correlations.to_csv(output_path / "distance_correlations.csv")
 
 class AdvancedCorrelationAnalyser:
     """Advanced correlation analyzer with multiple metrics and lag analysis"""
