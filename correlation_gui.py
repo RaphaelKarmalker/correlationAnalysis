@@ -45,6 +45,8 @@ class CorrelationAnalysisGUI:
         # NEW: Instrument splitting
         self.has_instruments = False
         self.split_by_instruments = ctk.BooleanVar(value=False)
+        # NEW: aggregation method for instrument split
+        self.instrument_agg_method = ctk.StringVar(value="mean")
         
         self.create_widgets()
         self.center_window()
@@ -223,8 +225,16 @@ Results are saved to ./data/correlation_analysis/ with:
         
         self.instrument_checkbox = ctk.CTkCheckBox(
             instrument_frame, 
-            text="Split by instruments (combines results from multiple instrument_id)", 
+            text="Split by instruments (combine multiple instrument_id)",
             variable=self.split_by_instruments
+        )
+        # NEW: aggregation selector (hidden unless instruments exist)
+        self.instrument_agg_combo = ctk.CTkComboBox(
+            instrument_frame,
+            variable=self.instrument_agg_method,
+            values=["mean", "sum", "median"],
+            state="readonly",
+            width=120
         )
         # Initially hidden, will be shown if target CSV has instrument_id
         
@@ -393,9 +403,20 @@ Results are saved to ./data/correlation_analysis/ with:
         if hasattr(self, 'instrument_checkbox'):
             if self.has_instruments:
                 self.instrument_checkbox.pack(anchor="w", pady=2)
+                # Show aggregation selector
+                try:
+                    # simple inline layout
+                    ctk.CTkLabel(self.instrument_checkbox.master, text="Aggregation:").pack(side="left", padx=(10, 6))
+                except Exception:
+                    pass
+                self.instrument_agg_combo.pack(side="left", padx=(0, 10))
             else:
                 self.instrument_checkbox.pack_forget()
                 self.split_by_instruments.set(False)
+                try:
+                    self.instrument_agg_combo.pack_forget()
+                except Exception:
+                    pass
                 
     def create_feature_selection_ui(self):
         """Create dynamic feature selection interface"""
@@ -715,7 +736,6 @@ Results are saved to ./data/correlation_analysis/ with:
         
         # Sort by timestamp and ensure unique datetime index
         result_df = result_df.sort_index()
-        # Drop duplicate timestamps keeping the latest row to avoid reindex errors downstream
         result_df = result_df[~result_df.index.duplicated(keep='last')]
         return result_df
         
@@ -733,58 +753,58 @@ Results are saved to ./data/correlation_analysis/ with:
         # Parse timestamp
         target_df['timestamp'] = _parse_any_timestamp(target_df['timestamp'])
         target_df = target_df.dropna(subset=['timestamp', target_feature])
-        
-        # Get unique instruments
+        # Ensure per-instrument timestamps are unique after we split
+        target_df = target_df.sort_values(['instrument_id', 'timestamp'])
+
         instruments = target_df['instrument_id'].unique()
         print(f"Found {len(instruments)} instruments: {instruments}")
-        
-        # Process each instrument separately
+
         combined_dfs = []
-        
+
         for instrument in instruments:
             print(f"Processing instrument: {instrument}")
-            
-            # Filter target data for this instrument
             instrument_target = target_df[target_df['instrument_id'] == instrument].copy()
             instrument_target = instrument_target.set_index('timestamp').sort_index()
-            
-            # Start with target column for this instrument
+            # drop duplicate timestamps within instrument
+            instrument_target = instrument_target[~instrument_target.index.duplicated(keep='last')]
+
             result_df = instrument_target[[target_feature]].copy()
-            
+
             # Add features from same CSV if available (excluding instrument_id)
             for feature in selected_features:
                 if feature in instrument_target.columns and feature != target_feature and feature != 'instrument_id':
                     result_df[feature] = instrument_target[feature]
-            
+
             # Load and merge features from other CSVs (same logic as single dataset)
             for csv_path in self.csv_paths:
                 if csv_path == target_csv_path:
                     continue
-                    
-                # Check if any selected features are in this CSV
+
                 csv_df = pd.read_csv(csv_path)
                 if 'timestamp' not in csv_df.columns:
                     continue
-                    
+
+                # If instrument_id exists in this CSV, filter by current instrument
+                if 'instrument_id' in csv_df.columns:
+                    csv_df = csv_df[csv_df['instrument_id'] == instrument]
+
                 features_in_csv = [f for f in selected_features if f in csv_df.columns]
                 if not features_in_csv:
                     continue
-                    
-                # Parse timestamp and prepare for merge
+
                 csv_df['timestamp'] = _parse_any_timestamp(csv_df['timestamp'])
                 csv_df = csv_df.dropna(subset=['timestamp'])
                 csv_df = csv_df.set_index('timestamp').sort_index()
-                
-                # Forward fill to propagate values
+                # drop duplicates per instrument in this CSV
+                csv_df = csv_df[~csv_df.index.duplicated(keep='last')]
+
                 csv_df = csv_df.ffill()
-                
-                # Select only needed features
+
                 feature_df = csv_df[features_in_csv].copy()
-                
-                # Merge using asof (backward looking, no leakage)
+
                 result_reset = result_df.reset_index()
                 feature_reset = feature_df.reset_index()
-                
+
                 merged_reset = pd.merge_asof(
                     result_reset.sort_values('timestamp'),
                     feature_reset.sort_values('timestamp'),
@@ -793,21 +813,27 @@ Results are saved to ./data/correlation_analysis/ with:
                     direction='backward',
                     allow_exact_matches=True
                 )
-                
+
                 result_df = merged_reset.set_index('timestamp')
-            
-            # Do NOT add instrument id as a column; we will aggregate across instruments by timestamp
+
             combined_dfs.append(result_df)
-        
-        # Combine all instruments into one DataFrame
-        final_df = pd.concat(combined_dfs, ignore_index=False)
-        final_df = final_df.sort_index()
+
+        # Combine all instruments into one DataFrame and aggregate per timestamp
+        if not combined_dfs:
+            raise ValueError("No instrument data assembled.")
+
+        final_df = pd.concat(combined_dfs, ignore_index=False).sort_index()
 
         # Aggregate across instruments per timestamp to avoid duplicate indices
-        # Using mean; NaNs are ignored by default in groupby.mean()
-        final_df = final_df.groupby(level=0).mean()
+        agg = self.instrument_agg_method.get().lower().strip()
+        if agg == "sum":
+            final_df = final_df.groupby(level=0).sum()
+        elif agg == "median":
+            final_df = final_df.groupby(level=0).median()
+        else:
+            # default mean
+            final_df = final_df.groupby(level=0).mean()
 
-        # Ensure unique, sorted datetime index (groupby already ensures uniqueness)
         final_df = final_df.sort_index()
         return final_df
         
