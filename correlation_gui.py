@@ -797,7 +797,6 @@ Results are saved to ./data/correlation_analysis/ with:
                 csv_df = csv_df.set_index('timestamp').sort_index()
                 # drop duplicates per instrument in this CSV
                 csv_df = csv_df[~csv_df.index.duplicated(keep='last')]
-
                 csv_df = csv_df.ffill()
 
                 feature_df = csv_df[features_in_csv].copy()
@@ -813,28 +812,31 @@ Results are saved to ./data/correlation_analysis/ with:
                     direction='backward',
                     allow_exact_matches=True
                 )
-
                 result_df = merged_reset.set_index('timestamp')
 
+            # keep instrument id as a column for reference
+            result_df['instrument_id'] = instrument
             combined_dfs.append(result_df)
 
-        # Combine all instruments into one DataFrame and aggregate per timestamp
+        # Combine all instruments into one DataFrame WITHOUT aggregating on timestamp
         if not combined_dfs:
             raise ValueError("No instrument data assembled.")
 
-        final_df = pd.concat(combined_dfs, ignore_index=False).sort_index()
+        final_df = pd.concat(combined_dfs, ignore_index=False)
 
-        # Aggregate across instruments per timestamp to avoid duplicate indices
-        agg = self.instrument_agg_method.get().lower().strip()
-        if agg == "sum":
-            final_df = final_df.groupby(level=0).sum()
-        elif agg == "median":
-            final_df = final_df.groupby(level=0).median()
-        else:
-            # default mean
-            final_df = final_df.groupby(level=0).mean()
-
+        # Sort by time and then reset to a simple RangeIndex to keep all samples (avoid duplicate index issues)
         final_df = final_df.sort_index()
+        final_df = final_df.reset_index().rename(columns={'index': 'timestamp'})
+
+        # Reorder columns to have target first, then features
+        cols = [c for c in [target_feature] + selected_features if c in final_df.columns]
+        other_cols = [c for c in final_df.columns if c not in cols + ['timestamp', 'instrument_id']]
+        final_df = final_df[['timestamp', 'instrument_id'] + cols + other_cols]
+
+        # Use RangeIndex for analysis (rolling uses sample count); keep timestamp as a column
+        final_df = final_df.dropna(subset=[target_feature])  # ensure target available
+        final_df = final_df.reset_index(drop=True)
+
         return final_df
         
     def run_correlation_analysis(self, df: pd.DataFrame, target_col: str, feature_cols: List[str]):
