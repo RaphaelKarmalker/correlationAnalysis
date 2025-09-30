@@ -118,8 +118,6 @@ def run_trade_analysis(
     
     plot_name_map: Dict[str, str] = {}
     if feature_transforms:
-        if verbose:
-            print(f"Applying feature transformations: {feature_transforms}")
         pre_cols = set(merged_dataset.columns)
         merged_dataset = apply_feature_transforms(
             merged_dataset,
@@ -187,7 +185,6 @@ def run_trade_analysis(
     for feat in features_to_analyse:
         _assign_bins(merged_dataset, feat)
 
-    print("\n=== Starting Trade Performance Analysis ===")
     if verbose:
         print(f"Trades: {len(trades_df)} | Feature rows: {len(feature_df)} | Merged: {len(merged_dataset)}")
         print(f"Binning: group_by='{group_by}', num_bins={num_bins}")

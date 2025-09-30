@@ -148,23 +148,17 @@ def load_features(
 def merge_trade_features(
     trades: pd.DataFrame,
     features: pd.DataFrame,
-    tolerance: Optional[pd.Timedelta | str] = None  # Keep parameter but ignore it
+    tolerance: Optional[pd.Timedelta | str] = None,  # kept for API
+    verbose: bool = False
 ) -> pd.DataFrame:
     """
-    Merge features into trades DataFrame without leakage:
-    - For each trade timestamp, find the LAST available feature value (backward looking)
-    - This means one feature entry can be used for MULTIPLE trades
-    - Example: Fear & Greed from Jan 1st is used for all trades on Jan 1st, 2nd, 3rd... until next update
-    - This is leak-safe because we only use past/current feature values
+    Merge features into trades DataFrame without leakage (backward-looking asof).
+    Uses the most recent feature value <= trade timestamp.
     """
     if not isinstance(trades.index, pd.DatetimeIndex):
         raise TypeError("trades muss einen DatetimeIndex haben.")
     if not isinstance(features.index, pd.DatetimeIndex):
         raise TypeError("features muss einen DatetimeIndex haben.")
-
-    print(f"\n=== Merging Trade Features ===")
-    print(f"Trades: {len(trades)} records from {trades.index.min()} to {trades.index.max()}")
-    print(f"Features: {len(features)} records from {features.index.min()} to {features.index.max()}")
 
     trades = trades.sort_index()
     features = features.sort_index()
@@ -172,12 +166,8 @@ def merge_trade_features(
     # Check time overlap
     trades_start, trades_end = trades.index.min(), trades.index.max()
     features_start, features_end = features.index.min(), features.index.max()
-    
     overlap_start = max(trades_start, features_start)
     overlap_end = min(trades_end, features_end)
-    
-    print(f"Time overlap: {overlap_start} to {overlap_end}")
-    
     if overlap_start >= overlap_end:
         print("WARNING: No time overlap between trades and features!")
         return trades
@@ -185,43 +175,28 @@ def merge_trade_features(
     # Reset indexes for merge_asof
     trades_reset = trades.reset_index()
     features_reset = features.reset_index()
-    
-    # Get the name of the timestamp column
+
+    # Name of the timestamp column
     ts_col = trades.index.name or 'timestamp'
-    
-    # Use merge_asof with direction='backward' 
-    # This finds the most recent feature value that is <= trade timestamp
-    # This is exactly what you want: use the LAST available feature value for each trade
+
     merged_reset = pd.merge_asof(
         trades_reset.sort_values(ts_col),
         features_reset.sort_values(ts_col),
         left_on=ts_col,
         right_on=ts_col,
-        direction='backward',  # Use most recent past feature value
+        direction='backward',
         allow_exact_matches=True
     )
-    
-    # Set timestamp back as index
+
     merged_final = merged_reset.set_index(ts_col)
-    
-    # Count successful matches
-    feature_cols = list(features.columns)
-    if feature_cols:
-        successful_matches = merged_final[feature_cols].notna().any(axis=1).sum()
-        print(f"Merge result: {successful_matches}/{len(trades)} trades matched with features ({successful_matches/len(trades)*100:.1f}%)")
-        
-        # Detailed match info per feature
-        for col in feature_cols:
-            valid_count = merged_final[col].notna().sum()
-            print(f"  {col}: {valid_count}/{len(trades)} trades ({valid_count/len(trades)*100:.1f}%)")
-            
-            # Show sample of matched values and their reuse
-            sample_data = merged_final[merged_final[col].notna()][col].head(10)
-            if len(sample_data) > 0:
-                print(f"    Sample values: {sample_data.tolist()}")
-                
-                # Show how many times each feature value is reused
-                value_counts = merged_final[col].value_counts().head(3)
-                print(f"    Most used values: {value_counts.to_dict()}")
-    
+
+    # Optional concise summary (disabled by default)
+    if verbose:
+        feature_cols = list(features.columns)
+        if feature_cols:
+            successful = merged_final[feature_cols].notna().any(axis=1).sum()
+            total = len(trades)
+            pct = (successful / total * 100.0) if total else 0.0
+            print(f"Merged features with trades: {successful}/{total} matched ({pct:.1f}%).")
+
     return merged_final
