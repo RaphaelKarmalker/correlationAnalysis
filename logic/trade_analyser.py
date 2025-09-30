@@ -6,7 +6,7 @@ import numpy as np
 from data_loader import load_trades, load_features, merge_trade_features
 from trade_analyser_logic import TradePerformanceAnalyser
 from converter import apply_feature_transforms
-from vis import (
+from .vis import (
     plot_trade_performance_by_feature,
     plot_trade_risk_metrics_by_feature,
     plot_trade_expectancy_payoff_by_feature,
