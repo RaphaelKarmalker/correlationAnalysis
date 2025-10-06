@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import sys
+import traceback  # ADDED: for full stack traces
 
 # Add logic folder to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'logic'))
@@ -42,6 +43,7 @@ class TradeAnalysisGUI:
         self.available_chart_indicators = []
         self.feature_selections = {}  # {feature_name: (selected_var, conversion_var, params_var)}
         self.chart_selections = {}    # {indicator_name: (selected_var, conversion_var, params_var)}
+        self.last_error: str | None = None  # ADDED: keep last full traceback
         
         self.create_widgets()
         self.center_window()
@@ -637,8 +639,11 @@ class TradeAnalysisGUI:
             self.root.after(0, self.analysis_completed_success)
             
         except Exception as e:
-            # Update GUI on main thread with error
-            self.root.after(0, lambda: self.analysis_completed_error(str(e)))
+            # UPDATED: capture full traceback and schedule UI error update
+            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            self.last_error = tb
+            print("Trade analysis failed:\n", tb)  # console output for debugging
+            self.root.after(0, lambda msg=tb: self.analysis_completed_error(msg))
             
     def analysis_completed_success(self):
         """Called when analysis completes successfully"""
@@ -653,7 +658,9 @@ class TradeAnalysisGUI:
         """Called when analysis encounters an error"""
         self.progress.stop()
         self.status_label.configure(text="Analysis failed")
-        messagebox.showerror("Analysis Error", f"Analysis failed with error:\n\n{error_msg}")
+        # UPDATED: show shortened message in dialog, keep full in console
+        short_msg = error_msg if len(error_msg) < 2000 else error_msg[:2000] + "\n...[truncated]"
+        messagebox.showerror("Analysis Error", f"Analysis failed with error:\n\n{short_msg}\n\n(Full traceback printed to console)")
         
     def reset_all(self):
         """Reset all inputs and selections"""

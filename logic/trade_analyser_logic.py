@@ -49,13 +49,25 @@ class TradePerformanceAnalyser:
         except Exception:
             duration_series = None
 
+        # WORK ON A LOCAL COPY (avoid mutating caller)
+        merged_work = merged_df.copy()
+
+        # Helper to ensure unique index before reindex operations
+        def _dedupe_index(obj):
+            try:
+                if not obj.index.is_unique:
+                    return obj.groupby(level=0).first()
+            except Exception:
+                pass
+            return obj
+
         results: Dict[str, pd.DataFrame] = {}
         for feature in feature_columns:
-            if feature not in merged_df.columns:
+            if feature not in merged_work.columns:
                 continue
 
             try:
-                s = pd.to_numeric(merged_df[feature], errors='coerce')
+                s = pd.to_numeric(merged_work[feature], errors='coerce')
                 if s.dropna().nunique() < 2:
                     if self.verbose:
                         print(f"Skipping feature '{feature}' due to low variability.")
@@ -63,19 +75,39 @@ class TradePerformanceAnalyser:
 
                 bin_col = f'{feature}_bin'
                 bins_cat = None
-                if bin_col in merged_df.columns:
-                    bin_codes = merged_df[bin_col]
+                if bin_col in merged_work.columns:
+                    bin_codes = merged_work[bin_col]
                 else:
                     bins_cat = pd.cut(s, bins=self.n_bins, include_lowest=True, duplicates='drop')
                     bin_codes = bins_cat.cat.codes
-                    merged_df[bin_col] = bin_codes
+                    merged_work[bin_col] = bin_codes
 
                 valid = bin_codes >= 0
-                df_feat = merged_df.loc[valid, ['realized_pnl', bin_col, feature]].copy()
+                df_feat = merged_work.loc[valid, ['realized_pnl', bin_col, feature]].copy()
 
-                # Attach duration if available
-                if duration_series is not None:
-                    df_feat['duration_min'] = duration_series.loc[df_feat.index]
+                if 'realized_pnl' not in df_feat.columns:
+                    if self.verbose:
+                        print(f"Skipping feature '{feature}' (realized_pnl missing after filtering).")
+                    continue
+
+                # Attach duration if available (safe reindex)
+                if 'closed_timestamp' in merged_work.columns or 'timestamp' in merged_work.columns:
+                    try:
+                        if 'duration_min' in merged_work.columns:
+                            # If duration already exists (precomputed), carry it
+                            df_feat['duration_min'] = merged_work['duration_min'].reindex(df_feat.index)
+                        else:
+                            # Attempt dynamic calculation (same logic as before)
+                            duration_series = None
+                            idx_name = merged_work.index.name
+                            if idx_name == 'timestamp' and 'closed_timestamp' in merged_work.columns:
+                                duration_series = (merged_work['closed_timestamp'] - merged_work.index.to_series()).dt.total_seconds() / 60.0
+                            elif idx_name == 'closed_timestamp' and 'timestamp' in merged_work.columns:
+                                duration_series = (merged_work.index.to_series() - merged_work['timestamp']).dt.total_seconds() / 60.0
+                            if duration_series is not None:
+                                df_feat['duration_min'] = duration_series.reindex(df_feat.index)
+                    except Exception:
+                        pass
 
                 # Infer trade side if available
                 def _infer_side_val(v):
@@ -92,21 +124,21 @@ class TradePerformanceAnalyser:
                 side_series = None
                 side_col = None
                 for cand in ['side', 'position_side', 'direction']:
-                    if cand in merged_df.columns:
+                    if cand in merged_work.columns:
                         side_col = cand
                         break
                 if side_col is not None:
-                    side_series = merged_df[side_col].map(_infer_side_val)
-                elif 'is_long' in merged_df.columns:
-                    side_series = merged_df['is_long'].map(lambda b: 'long' if bool(b) else 'short')
-                elif 'qty' in merged_df.columns:
-                    side_series = merged_df['qty'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
-                elif 'size' in merged_df.columns:
-                    side_series = merged_df['size'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
+                    side_series = merged_work[side_col].map(_infer_side_val)
+                elif 'is_long' in merged_work.columns:
+                    side_series = merged_work['is_long'].map(lambda b: 'long' if bool(b) else 'short')
+                elif 'qty' in merged_work.columns:
+                    side_series = merged_work['qty'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
+                elif 'size' in merged_work.columns:
+                    side_series = merged_work['size'].map(lambda q: 'long' if pd.to_numeric(q, errors='coerce') > 0 else ('short' if pd.to_numeric(q, errors='coerce') < 0 else np.nan))
 
                 if side_series is not None:
                     try:
-                        df_feat['side'] = side_series.loc[df_feat.index]
+                        df_feat['side'] = side_series.reindex(df_feat.index)
                     except Exception:
                         df_feat['side'] = np.nan
 
@@ -116,9 +148,13 @@ class TradePerformanceAnalyser:
                     total_pnl=('realized_pnl', 'sum'),
                     trade_count=('realized_pnl', 'count'),
                 )
+                binned = _dedupe_index(binned)
 
                 wins = df_feat[df_feat['realized_pnl'] > 0].groupby(bin_col)['realized_pnl'].agg(sum='sum', count='count')
+                wins = _dedupe_index(wins)
+
                 losses = df_feat[df_feat['realized_pnl'] < 0].groupby(bin_col)['realized_pnl'].agg(sum='sum')
+                losses = _dedupe_index(losses)
 
                 wins = wins.reindex(binned.index)
                 losses = losses.reindex(binned.index)
@@ -233,11 +269,13 @@ class TradePerformanceAnalyser:
                         'short_win_rate': short_wr,
                     }
 
-                extra_df = pd.DataFrame.from_dict(extra_stats, orient='index').reindex(binned.index)
+                extra_df = pd.DataFrame.from_dict(extra_stats, orient='index')
+                extra_df = _dedupe_index(extra_df).reindex(binned.index)
                 binned = binned.join(extra_df)
 
                 # Build readable bin range labels with 3-dec rounding
-                stats = df_feat.groupby(bin_col)[feature].agg(bin_min='min', bin_max='max').reindex(binned.index)
+                stats = df_feat.groupby(bin_col)[feature].agg(bin_min='min', bin_max='max')
+                stats = _dedupe_index(stats).reindex(binned.index)
 
                 def _fmt(v: float) -> str:
                     try:
